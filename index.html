@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta name="theme-color" content="#F6F5F2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Spend">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./assets/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="./assets/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Spend — expense tracker</title>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- HOME -->
+  <section class="screen active" id="screen-home">
+    <div class="topbar">
+      <div class="month tabular" id="monthLabel">This month</div>
+      <button class="iconbtn" aria-label="Settings" data-ico="settings"></button>
+    </div>
+    <div class="scroll" id="homeScroll"></div>
+  </section>
+
+  <!-- LIST -->
+  <section class="screen" id="screen-list">
+    <div class="topbar">
+      <h1>Expenses</h1>
+      <button class="iconbtn" aria-label="Filter" data-ico="filter"></button>
+    </div>
+    <div class="chips" id="filterChips"></div>
+    <div class="scroll" id="listScroll"></div>
+  </section>
+
+  <!-- ADD -->
+  <section class="screen" id="screen-add">
+    <div class="topbar">
+      <button class="iconbtn" id="addBack" aria-label="Cancel" data-ico="x"></button>
+      <h1 style="font-size:16px;" id="addTitle">New expense</h1>
+      <span style="width:34px"></span>
+    </div>
+    <div class="scroll">
+      <div class="amountwrap">
+        <input class="amtinput tabular" id="amtInput" inputmode="decimal" placeholder="0,00"
+               aria-label="Amount in euros" autocomplete="off">
+        <div class="cur">EUR</div>
+      </div>
+      <div class="field">
+        <div class="fl">Category</div>
+        <div class="pickgrid" id="pickGrid"></div>
+      </div>
+      <div class="field">
+        <div class="fl">Date</div>
+        <div class="datepill">
+          <span class="icon" data-ico="calendar"></span><span id="dateText">Today</span>
+          <span class="icon chev" data-ico="chevron"></span>
+          <input type="date" id="dateInput" aria-label="Pick a date">
+        </div>
+      </div>
+      <div class="field">
+        <div class="fl">Note <span style="text-transform:none;color:var(--faint);font-weight:500;">(optional)</span></div>
+        <input class="noteinput" id="noteInput" placeholder="e.g. lunch with friends" autocomplete="off">
+      </div>
+      <button class="savebtn" id="saveBtn" disabled>Save expense</button>
+    </div>
+  </section>
+
+  <!-- STUB (analyse / more) -->
+  <section class="screen" id="screen-stub">
+    <div class="topbar"><h1 id="stubTitle">Analysis</h1></div>
+    <div class="stub">
+      <span class="icon" data-ico="chart"></span>
+      <h2 id="stubHead">Charts coming next</h2>
+      <p id="stubBody">Spending by category, month-over-month, and your daily pace. This is the natural fourth screen to build once logging feels right.</p>
+    </div>
+  </section>
+
+  <!-- NAV -->
+  <nav class="nav" id="nav">
+    <button data-nav="home" class="on"><span class="icon" data-ico="home"></span>Home</button>
+    <button data-nav="list"><span class="icon" data-ico="list"></span>Expenses</button>
+    <button data-nav="add"><span class="icon" data-ico="plus"></span>Add</button>
+    <button data-nav="analyse"><span class="icon" data-ico="chart"></span>Analysis</button>
+    <button data-nav="more"><span class="icon" data-ico="dots"></span>More</button>
+  </nav>
+</div>
+
+<script src="./app.js"></script>
+</body>
+</html>
