@@ -23,6 +23,8 @@ const ICONS = {
   filter: P('<path d="M3 5h18l-7 8v5l-4 2v-7L3 5Z"/>'),
   lock: P('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
   chevron: P('<path d="M6 9l6 6 6-6"/>'),
+  chevronLeft: P('<path d="M15 6l-6 6 6 6"/>'),
+  chevronRight: P('<path d="M9 6l6 6-6 6"/>'),
 };
 function paintIcons(root) {
   (root || document).querySelectorAll("[data-ico]").forEach((e) => {
@@ -107,6 +109,22 @@ function thisMonth(e) {
   const n = new Date();
   return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth();
 }
+function expenseInViewMonth(e) {
+  const d = new Date(e.date);
+  return d.getFullYear() === viewMonth.getFullYear() && d.getMonth() === viewMonth.getMonth();
+}
+function isCurrentViewMonth() {
+  const n = new Date();
+  return viewMonth.getFullYear() === n.getFullYear() && viewMonth.getMonth() === n.getMonth();
+}
+function shiftViewMonth(delta) {
+  const next = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + delta, 1);
+  const now = new Date();
+  const current = new Date(now.getFullYear(), now.getMonth(), 1);
+  if (next > current) return;
+  viewMonth = next;
+  renderHome();
+}
 function startDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
@@ -139,15 +157,20 @@ let currentScreen = "home";
 let filter = "all";
 let openRow = null;
 let editingId = null;
+const now = new Date();
+let viewMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 const draft = { amount: 0, cat: null, note: "", day: todayStr() };
 
 /* ---------- HOME ---------- */
 function renderHome() {
-  document.getElementById("monthLabel").innerHTML =
-    new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" }) +
-    ' <span class="icon" style="width:16px;height:16px;color:var(--faint)" data-ico="chevron"></span>';
+  document.getElementById("monthLabel").textContent = viewMonth.toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+  document.getElementById("monthPrev").disabled = false;
+  document.getElementById("monthNext").disabled = isCurrentViewMonth();
 
-  const month = expenses.filter(thisMonth);
+  const month = expenses.filter(expenseInViewMonth);
   const total = month.reduce((s, e) => s + e.amount, 0);
   const fixed = month.filter((e) => catById(e.cat).fixed).reduce((s, e) => s + e.amount, 0);
   const variable = total - fixed;
@@ -188,11 +211,15 @@ function renderHome() {
       <div class="rright"><div class="amt tabular">${money(e.amount)}</div><div class="dt">${dayLabel(e.date)}</div></div>
     </div></div>`;
       })
-      .join("") || `<div class="empty">No expenses yet this month.</div>`;
+      .join("") || `<div class="empty">No expenses in this month.</div>`;
+
+  const daysNote = isCurrentViewMonth()
+    ? `${daysLeftInMonth()} days left`
+    : `${new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate()} days`;
 
   document.getElementById("homeScroll").innerHTML = `
     <div class="hero">
-      <div class="lbl">Spent this month</div>
+      <div class="lbl">${isCurrentViewMonth() ? "Spent this month" : "Spent in " + viewMonth.toLocaleDateString("en-GB", { month: "long" })}</div>
       <div class="total tabular">${money(total)}</div>
       <div class="bar ${over ? "over" : ""}"><i style="width:${pct}%"></i></div>
       <div class="budgetline">
@@ -201,7 +228,7 @@ function renderHome() {
       </div>
       <div class="fixedline">
         <span class="icon" data-ico="lock"></span>
-        Fixed ${money(fixed)}${fixedNames ? " · " + fixedNames : ""} · ${daysLeftInMonth()} days left
+        Fixed ${money(fixed)}${fixedNames ? " · " + fixedNames : ""} · ${daysNote}
       </div>
     </div>
     <button class="addbtn" data-nav="add"><span class="icon" data-ico="plus"></span>Add expense</button>
@@ -211,6 +238,7 @@ function renderHome() {
     <div class="rows">${recentRows}</div>
   `;
   paintIcons(document.getElementById("screen-home"));
+  paintIcons(document.getElementById("monthSwitcher"));
 }
 
 /* ---------- LIST ---------- */
@@ -429,6 +457,8 @@ document.getElementById("app").addEventListener("click", (e) => {
     return;
   }
 });
+document.getElementById("monthPrev").addEventListener("click", () => shiftViewMonth(-1));
+document.getElementById("monthNext").addEventListener("click", () => shiftViewMonth(1));
 document.getElementById("addBack").addEventListener("click", () => {
   const back = editingId ? "list" : "home";
   editingId = null;
@@ -474,5 +504,6 @@ function registerServiceWorker() {
 /* ---------- init ---------- */
 load();
 paintIcons(document);
+paintIcons(document.getElementById("monthSwitcher"));
 showScreen("home");
 registerServiceWorker();

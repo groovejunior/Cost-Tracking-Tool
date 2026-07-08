@@ -19,7 +19,11 @@
   <!-- HOME -->
   <section class="screen active" id="screen-home">
     <div class="topbar">
-      <div class="month tabular" id="monthLabel">This month</div>
+      <div class="month-switch tabular" id="monthSwitcher">
+        <button class="iconbtn" type="button" id="monthPrev" aria-label="Previous month" data-ico="chevronLeft"></button>
+        <div class="month" id="monthLabel">This month</div>
+        <button class="iconbtn" type="button" id="monthNext" aria-label="Next month" data-ico="chevronRight"></button>
+      </div>
       <button class="iconbtn" aria-label="Settings" data-ico="settings"></button>
     </div>
     <div class="scroll" id="homeScroll"></div>
