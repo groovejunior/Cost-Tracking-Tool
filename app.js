@@ -58,7 +58,6 @@ function d(day, h) {
   return new Date(n.getFullYear(), n.getMonth(), dd, h || 12, 0).toISOString();
 }
 
-const _span = Math.max(1, Math.min(new Date().getDate(), 24));
 const _varSeed = [
   ["eating", 4.8, "Coffee"],
   ["household", 8.4, "Detergent"],
@@ -72,33 +71,121 @@ const _varSeed = [
   ["groceries", 23.8, "Albert Heijn"],
   ["eating", 12.5, "Ramen"],
 ];
-let expenses = [
-  { id: nid(), cat: "rent", amount: 450, note: "", date: d(1, 9) },
-  { id: nid(), cat: "subs", amount: 10.99, note: "Spotify", date: d(2, 8) },
-  { id: nid(), cat: "subs", amount: 12.5, note: "Phone plan", date: d(3, 8) },
-];
-_varSeed.forEach((s, i) => {
-  const day = 1 + Math.round((_span - 1) * (i / (_varSeed.length - 1)));
-  expenses.push({ id: nid(), cat: s[0], amount: s[1], note: s[2], date: d(day, 9 + (i % 12)) });
-});
+
+/** Build the demo month of sample expenses (shown when a user has no saved data yet). */
+function buildDemoExpenses() {
+  let counter = 1;
+  const nextId = () => "e" + counter++;
+  const span = Math.max(1, Math.min(new Date().getDate(), 24));
+  const list = [
+    { id: nextId(), cat: "rent", amount: 450, note: "", date: d(1, 9) },
+    { id: nextId(), cat: "subs", amount: 10.99, note: "Spotify", date: d(2, 8) },
+    { id: nextId(), cat: "subs", amount: 12.5, note: "Phone plan", date: d(3, 8) },
+  ];
+  _varSeed.forEach((s, i) => {
+    const day = 1 + Math.round((span - 1) * (i / (_varSeed.length - 1)));
+    list.push({ id: nextId(), cat: s[0], amount: s[1], note: s[2], date: d(day, 9 + (i % 12)) });
+  });
+  return { expenses: list, uid: counter };
+}
+
+let expenses = (() => {
+  const demo = buildDemoExpenses();
+  uid = demo.uid;
+  return demo.expenses;
+})();
 
 /* persistence */
-const STORE = "spend_v1";
-function save() {
+let storeKey = "spend_v1";
+
+function useCloud() {
+  return !!(window.SpendData && window.SpendData.isEnabled() && currentUser);
+}
+
+function setExpenseStoreKey(userId) {
+  storeKey = userId ? "spend_v1_" + userId : "spend_v1";
+}
+
+function readLocalExpenses() {
   try {
-    localStorage.setItem(STORE, JSON.stringify(expenses));
+    const r = localStorage.getItem(storeKey);
+    if (!r) return [];
+    const p = JSON.parse(r);
+    return Array.isArray(p) ? p : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function save() {
+  if (useCloud()) return;
+  try {
+    localStorage.setItem(storeKey, JSON.stringify(expenses));
   } catch (e) {}
 }
+
 function load() {
   try {
-    const r = localStorage.getItem(STORE);
-    if (r) {
-      const p = JSON.parse(r);
-      if (Array.isArray(p) && p.length) {
-        expenses = p;
-      }
-    }
+    const p = readLocalExpenses();
+    if (p.length) expenses = p;
   } catch (e) {}
+}
+
+function syncUidFromExpenses() {
+  expenses.forEach((e) => {
+    const n = parseInt(String(e.id).replace(/^e/, ""), 10);
+    if (!isNaN(n) && n >= uid) uid = n + 1;
+  });
+}
+
+/**
+ * Load expenses on sign-in:
+ * 1. Cloud data (if any)
+ * 2. Else migrate browser localStorage → cloud
+ * 3. Else seed demo data to cloud
+ */
+async function hydrateExpenses() {
+  if (!useCloud()) {
+    const demo = buildDemoExpenses();
+    uid = demo.uid;
+    expenses = demo.expenses;
+    load();
+    syncUidFromExpenses();
+    return;
+  }
+
+  const rows = await window.SpendData.fetchAll(currentUser.id);
+  if (rows.length > 0) {
+    expenses = rows;
+    return;
+  }
+
+  const local = readLocalExpenses();
+  if (local.length > 0) {
+    expenses = await window.SpendData.insertMany(currentUser.id, local);
+    try {
+      localStorage.removeItem(storeKey);
+    } catch (e) {}
+    return;
+  }
+
+  const demo = buildDemoExpenses().expenses;
+  expenses = await window.SpendData.insertMany(currentUser.id, demo);
+}
+
+function showToast(message) {
+  const el = document.getElementById("toast");
+  if (!el || !message) return;
+  el.textContent = message;
+  el.hidden = false;
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => {
+    el.hidden = true;
+  }, 4500);
+}
+
+function setAppLoading(loading) {
+  document.getElementById("app").classList.toggle("loading", loading);
 }
 
 /* ---------- helpers ---------- */
@@ -154,6 +241,8 @@ function stampFor(dayStr) {
 
 /* ---------- state ---------- */
 let currentScreen = "home";
+let currentUser = null;
+let authMode = "signin";
 let filter = "all";
 let openRow = null;
 let editingId = null;
@@ -346,28 +435,63 @@ function openEdit(id) {
   document.getElementById("saveBtn").textContent = "Save changes";
   openEditor();
 }
-function commitAdd() {
+async function commitAdd() {
   refreshSave();
   if (!(draft.amount > 0 && draft.cat)) return;
+
   const payload = {
     cat: draft.cat,
     amount: Math.round(draft.amount * 100) / 100,
     note: document.getElementById("noteInput").value.trim(),
     date: stampFor(draft.day),
   };
-  if (editingId) {
-    const e = expenses.find((x) => x.id === editingId);
-    if (e) Object.assign(e, payload);
-    editingId = null;
-    save();
-    showScreen("list");
-    renderHome();
-  } else {
-    expenses.push(Object.assign({ id: nid() }, payload));
-    save();
-    showScreen("home");
-    renderHome();
+
+  const btn = document.getElementById("saveBtn");
+  btn.disabled = true;
+
+  try {
+    if (editingId) {
+      const e = expenses.find((x) => x.id === editingId);
+      if (!e) return;
+      if (useCloud()) {
+        const updated = await window.SpendData.update(editingId, payload);
+        Object.assign(e, updated);
+      } else {
+        Object.assign(e, payload);
+        save();
+      }
+      editingId = null;
+      showScreen("list");
+      renderHome();
+    } else {
+      if (useCloud()) {
+        const created = await window.SpendData.insert(currentUser.id, payload);
+        expenses.push(created);
+      } else {
+        expenses.push(Object.assign({ id: nid() }, payload));
+        save();
+      }
+      showScreen("home");
+      renderHome();
+      renderList();
+    }
+  } catch (err) {
+    showToast(err.message || "Could not save expense. Check your connection.");
+  } finally {
+    refreshSave();
+  }
+}
+
+async function deleteExpense(id) {
+  try {
+    if (useCloud()) await window.SpendData.remove(id);
+    expenses = expenses.filter((x) => x.id !== id);
+    if (!useCloud()) save();
+    openRow = null;
     renderList();
+    renderHome();
+  } catch (err) {
+    showToast(err.message || "Could not delete expense.");
   }
 }
 
@@ -392,18 +516,184 @@ function showScreen(name) {
   setNav(name);
   if (name === "home") renderHome();
   if (name === "list") renderList();
-  if (name === "analyse") {
-    document.getElementById("stubTitle").textContent = "Analysis";
-    document.getElementById("stubHead").textContent = "Charts coming next";
-    document.getElementById("stubBody").textContent =
-      "Spending by category, month-over-month, and your daily pace. The natural fourth screen to build once logging feels right.";
+  if (name === "analyse") renderAnalyse();
+  if (name === "more") renderMore();
+}
+
+function renderAnalyse() {
+  document.getElementById("stubTitle").textContent = "Analysis";
+  const el = document.getElementById("stubContent");
+  el.className = "stub";
+  el.innerHTML = `
+    <span class="icon" data-ico="chart"></span>
+    <h2>Charts coming next</h2>
+    <p>Spending by category, month-over-month, and your daily pace. The natural fourth screen to build once logging feels right.</p>
+  `;
+  paintIcons(el);
+}
+
+function renderMore() {
+  document.getElementById("stubTitle").textContent = "More";
+  const el = document.getElementById("stubContent");
+  if (window.SpendAuth && window.SpendAuth.isEnabled() && currentUser) {
+    el.className = "account-panel";
+    el.innerHTML = `
+      <div class="account-card">
+        <div class="lbl">Signed in as</div>
+        <div class="email">${currentUser.email || "Account"}</div>
+      </div>
+      <button type="button" class="logoutbtn" id="logoutBtn">Sign out</button>
+    `;
+    document.getElementById("logoutBtn").addEventListener("click", handleLogout);
+    return;
   }
-  if (name === "more") {
-    document.getElementById("stubTitle").textContent = "More";
-    document.getElementById("stubHead").textContent = "Settings live here";
-    document.getElementById("stubBody").textContent =
-      "Budget, categories, currency, and export. Kept out of the way so the core loop stays fast.";
+  el.className = "stub";
+  el.innerHTML = `
+    <span class="icon" data-ico="dots"></span>
+    <h2>Settings live here</h2>
+    <p>Budget, categories, currency, and export. Kept out of the way so the core loop stays fast.</p>
+  `;
+  paintIcons(el);
+}
+
+/* ---------- auth ---------- */
+function showSetupScreen() {
+  currentUser = null;
+  const app = document.getElementById("app");
+  app.classList.add("auth-mode");
+  app.classList.remove("modal");
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  document.getElementById("screen-setup").classList.add("active");
+}
+
+function showAuthScreen() {
+  currentUser = null;
+  const app = document.getElementById("app");
+  app.classList.add("auth-mode");
+  app.classList.remove("modal");
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  document.getElementById("screen-auth").classList.add("active");
+  clearAuthMessage();
+}
+
+async function enterApp(session) {
+  currentUser = session ? session.user : null;
+  if (currentUser) setExpenseStoreKey(currentUser.id);
+  setAppLoading(true);
+  try {
+    await hydrateExpenses();
+    document.getElementById("app").classList.remove("auth-mode");
+    paintIcons(document);
+    paintIcons(document.getElementById("monthSwitcher"));
+    showScreen("home");
+  } catch (err) {
+    showToast(err.message || "Could not load your expenses.");
+    showAuthScreen();
+  } finally {
+    setAppLoading(false);
   }
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  document.getElementById("authSubmit").textContent = mode === "signin" ? "Sign in" : "Create account";
+  document.getElementById("authToggle").textContent =
+    mode === "signin" ? "Need an account? Sign up" : "Already have an account? Sign in";
+  document.getElementById("authPassword").autocomplete = mode === "signin" ? "current-password" : "new-password";
+  clearAuthMessage();
+}
+
+function showAuthMessage(text, type) {
+  const el = document.getElementById("authMsg");
+  el.textContent = text;
+  el.className = "auth-msg " + (type || "error");
+  el.hidden = !text;
+}
+
+function clearAuthMessage() {
+  showAuthMessage("", "");
+  document.getElementById("authMsg").hidden = true;
+}
+
+function setAuthLoading(loading) {
+  document.getElementById("authSubmit").disabled = loading;
+  document.getElementById("authSubmit").textContent = loading
+    ? "Please wait…"
+    : authMode === "signin"
+      ? "Sign in"
+      : "Create account";
+}
+
+async function handleAuthSubmit(e) {
+  e.preventDefault();
+  clearAuthMessage();
+
+  const email = document.getElementById("authEmail").value.trim();
+  const password = document.getElementById("authPassword").value;
+  if (!email || password.length < 6) {
+    showAuthMessage("Enter a valid email and a password with at least 6 characters.", "error");
+    return;
+  }
+
+  setAuthLoading(true);
+  try {
+    if (authMode === "signup") {
+      const data = await window.SpendAuth.signUp(email, password);
+      if (data.session) {
+        await enterApp(data.session);
+      } else {
+        showAuthMessage("Account created. Check your email to confirm, then sign in.", "ok");
+        setAuthMode("signin");
+      }
+    } else {
+      const data = await window.SpendAuth.signIn(email, password);
+      await enterApp(data.session);
+    }
+  } catch (err) {
+    showAuthMessage(err.message || "Something went wrong. Please try again.", "error");
+  } finally {
+    setAuthLoading(false);
+  }
+}
+
+async function handleLogout() {
+  try {
+    await window.SpendAuth.signOut();
+  } catch (err) {
+    showAuthMessage(err.message || "Could not sign out.", "error");
+  }
+}
+
+function wireAuthForm() {
+  document.getElementById("authForm").addEventListener("submit", handleAuthSubmit);
+  document.getElementById("authToggle").addEventListener("click", () => {
+    setAuthMode(authMode === "signin" ? "signup" : "signin");
+  });
+}
+
+async function bootstrap() {
+  wireAuthForm();
+  paintIcons(document);
+
+  if (!window.SpendAuth || !window.SpendAuth.isEnabled()) {
+    showSetupScreen();
+    registerServiceWorker();
+    return;
+  }
+
+  const session = await window.SpendAuth.getSession();
+  if (session) {
+    await enterApp(session);
+  } else {
+    showAuthScreen();
+  }
+
+  window.SpendAuth.onAuthStateChange((_event, session) => {
+    if (session) void enterApp(session);
+    else showAuthScreen();
+  });
+
+  registerServiceWorker();
 }
 
 /* ---------- events (delegated) ---------- */
@@ -435,10 +725,7 @@ document.getElementById("app").addEventListener("click", (e) => {
 
   const del = e.target.closest("[data-del]");
   if (del) {
-    expenses = expenses.filter((x) => x.id !== del.dataset.del);
-    openRow = null;
-    save();
-    renderList();
+    void deleteExpense(del.dataset.del);
     return;
   }
 
@@ -464,7 +751,9 @@ document.getElementById("addBack").addEventListener("click", () => {
   editingId = null;
   showScreen(back);
 });
-document.getElementById("saveBtn").addEventListener("click", commitAdd);
+document.getElementById("saveBtn").addEventListener("click", () => {
+  void commitAdd();
+});
 document.getElementById("amtInput").addEventListener("input", (e) => {
   e.target.value = e.target.value.replace(/[^0-9.,]/g, "");
   refreshSave();
@@ -476,7 +765,7 @@ document.getElementById("dateInput").addEventListener("change", (e) => {
 document.getElementById("noteInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    commitAdd();
+    void commitAdd();
   }
 });
 
@@ -516,8 +805,4 @@ function registerServiceWorker() {
 }
 
 /* ---------- init ---------- */
-load();
-paintIcons(document);
-paintIcons(document.getElementById("monthSwitcher"));
-showScreen("home");
-registerServiceWorker();
+bootstrap();

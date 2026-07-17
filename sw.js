@@ -1,9 +1,13 @@
-const CACHE_NAME = "spend-v3";
+const CACHE_NAME = "spend-v6";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./supabase/config.js",
+  "./supabase/client.js",
+  "./supabase/auth.js",
+  "./supabase/data.js",
   "./manifest.webmanifest",
   "./assets/icon-192.png",
   "./assets/icon-512.png",

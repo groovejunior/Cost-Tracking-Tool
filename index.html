@@ -16,8 +16,50 @@
 <body>
 <div class="app" id="app">
 
+  <!-- SETUP (shown when Supabase keys are missing) -->
+  <section class="screen" id="screen-setup">
+    <div class="auth">
+      <div class="auth-brand">
+        <h1>Almost there</h1>
+        <p>Connect this app to your Supabase project</p>
+      </div>
+      <div class="setup-steps">
+        <p><strong>1.</strong> Supabase Dashboard → <strong>Project Settings</strong> → <strong>API</strong></p>
+        <p><strong>2.</strong> Copy <strong>Project URL</strong> and <strong>anon public</strong> key</p>
+        <p><strong>3.</strong> Paste them into <code>supabase/config.js</code> and save</p>
+        <p><strong>4.</strong> Hard-refresh this page (<code>Cmd+Shift+R</code>)</p>
+      </div>
+      <p class="auth-msg error" style="margin-top:16px">Supabase is not configured yet — that’s why you don’t see the login screen.</p>
+    </div>
+  </section>
+
+  <!-- AUTH (login / sign up) -->
+  <section class="screen" id="screen-auth">
+    <div class="auth">
+      <div class="auth-brand">
+        <h1>Spend</h1>
+        <p>Your personal expense tracker</p>
+      </div>
+      <form id="authForm" class="auth-form" novalidate>
+        <div class="field">
+          <div class="fl">Email</div>
+          <input class="noteinput" type="email" id="authEmail" autocomplete="email" required
+                 placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <div class="fl">Password</div>
+          <input class="noteinput" type="password" id="authPassword" autocomplete="current-password"
+                 minlength="6" required placeholder="At least 6 characters">
+        </div>
+        <p class="auth-msg" id="authMsg" hidden></p>
+        <button type="submit" class="savebtn" id="authSubmit">Sign in</button>
+      </form>
+      <button type="button" class="auth-toggle" id="authToggle">Need an account? Sign up</button>
+    </div>
+  </section>
+
   <!-- HOME -->
-  <section class="screen active" id="screen-home">
+  <section class="screen" id="screen-home">
     <div class="topbar">
       <div class="month-switch tabular" id="monthSwitcher">
         <button class="iconbtn" type="button" id="monthPrev" aria-label="Previous month" data-ico="chevronLeft"></button>
@@ -75,11 +117,7 @@
   <!-- STUB (analyse / more) -->
   <section class="screen" id="screen-stub">
     <div class="topbar"><h1 id="stubTitle">Analysis</h1></div>
-    <div class="stub">
-      <span class="icon" data-ico="chart"></span>
-      <h2 id="stubHead">Charts coming next</h2>
-      <p id="stubBody">Spending by category, month-over-month, and your daily pace. This is the natural fourth screen to build once logging feels right.</p>
-    </div>
+    <div id="stubContent"></div>
   </section>
 
   <!-- NAV -->
@@ -92,6 +130,14 @@
   </nav>
 </div>
 
+<div id="toast" class="toast" hidden></div>
+
+<!-- Supabase: cloud auth + database (loaded before our app code) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./supabase/config.js"></script>
+<script src="./supabase/client.js"></script>
+<script src="./supabase/auth.js"></script>
+<script src="./supabase/data.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
