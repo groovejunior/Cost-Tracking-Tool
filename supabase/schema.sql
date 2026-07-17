@@ -14,6 +14,7 @@ create table if not exists public.expenses (
   amount numeric(10, 2) not null check (amount > 0),
   note text not null default '',
   expense_date timestamptz not null,    -- "date" in the app (renamed to avoid SQL keyword)
+  fx_rate numeric(10, 4),               -- EUR→AUD snapshot for the expense month (€ hints)
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -22,12 +23,41 @@ create index if not exists expenses_user_date_idx
   on public.expenses (user_id, expense_date desc);
 
 -- ---------------------------------------------------------------------------
--- Per-user settings (budget, currency — categories stay in app code for now)
+-- Monthly EUR→AUD rates (shared — same market rate for every user)
+-- ---------------------------------------------------------------------------
+create table if not exists public.fx_rates (
+  month_key text primary key check (month_key ~ '^\d{4}-\d{2}$'),
+  eur_to_aud numeric(10, 4) not null check (eur_to_aud > 0),
+  fetched_at timestamptz not null default now(),
+  source text not null default 'frankfurter'
+);
+
+-- ---------------------------------------------------------------------------
+-- Per-user expense categories (variable + fixed spending)
+-- ---------------------------------------------------------------------------
+create table if not exists public.categories (
+  user_id uuid references auth.users(id) on delete cascade not null,
+  id text not null,
+  name text not null,
+  color text not null,
+  icon text not null,
+  fixed boolean not null default false,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, id)
+);
+
+create index if not exists categories_user_sort_idx
+  on public.categories (user_id, sort_order);
+
+-- ---------------------------------------------------------------------------
+-- Per-user settings (budget, currency)
 -- ---------------------------------------------------------------------------
 create table if not exists public.user_settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
-  variable_budget numeric(10, 2) not null default 600,
-  currency text not null default 'EUR',
+  variable_budget numeric(10, 2) not null default 1000,
+  currency text not null default 'AUD',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -76,11 +106,18 @@ create trigger user_settings_set_updated_at
   before update on public.user_settings
   for each row execute function public.spend_set_updated_at();
 
+drop trigger if exists categories_set_updated_at on public.categories;
+create trigger categories_set_updated_at
+  before update on public.categories
+  for each row execute function public.spend_set_updated_at();
+
 -- ---------------------------------------------------------------------------
 -- Row Level Security — users only see their own data
 -- ---------------------------------------------------------------------------
 alter table public.expenses enable row level security;
 alter table public.user_settings enable row level security;
+alter table public.categories enable row level security;
+alter table public.fx_rates enable row level security;
 
 drop policy if exists "Users read own expenses" on public.expenses;
 create policy "Users read own expenses"
@@ -108,8 +145,53 @@ create policy "Users read own settings"
   on public.user_settings for select
   using (auth.uid() = user_id);
 
+drop policy if exists "Users insert own settings" on public.user_settings;
+create policy "Users insert own settings"
+  on public.user_settings for insert
+  with check (auth.uid() = user_id);
+
 drop policy if exists "Users update own settings" on public.user_settings;
 create policy "Users update own settings"
   on public.user_settings for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+drop policy if exists "Users read own categories" on public.categories;
+create policy "Users read own categories"
+  on public.categories for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users insert own categories" on public.categories;
+create policy "Users insert own categories"
+  on public.categories for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users update own categories" on public.categories;
+create policy "Users update own categories"
+  on public.categories for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users delete own categories" on public.categories;
+create policy "Users delete own categories"
+  on public.categories for delete
+  using (auth.uid() = user_id);
+
+drop policy if exists "Authenticated read fx rates" on public.fx_rates;
+create policy "Authenticated read fx rates"
+  on public.fx_rates for select
+  to authenticated
+  using (true);
+
+drop policy if exists "Authenticated insert fx rates" on public.fx_rates;
+create policy "Authenticated insert fx rates"
+  on public.fx_rates for insert
+  to authenticated
+  with check (true);
+
+drop policy if exists "Authenticated update fx rates" on public.fx_rates;
+create policy "Authenticated update fx rates"
+  on public.fx_rates for update
+  to authenticated
+  using (true)
+  with check (true);

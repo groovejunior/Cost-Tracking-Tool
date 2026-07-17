@@ -3,8 +3,8 @@
 /**
  * Cloud persistence for expenses (Supabase Postgres).
  * Maps between DB rows and the in-memory shape used by app.js:
- *   app:  { id, cat, amount, note, date }
- *   db:   { id, category_id, amount, note, expense_date, user_id }
+ *   app:  { id, cat, amount, note, date, fxRate? }
+ *   db:   { id, category_id, amount, note, expense_date, fx_rate, user_id }
  */
 const SpendData = {
   isEnabled() {
@@ -23,24 +23,27 @@ const SpendData = {
       amount: Number(row.amount),
       note: row.note || "",
       date: row.expense_date,
+      fxRate: row.fx_rate != null ? Number(row.fx_rate) : null,
     };
   },
 
   _toRow(userId, expense) {
-    return {
+    const row = {
       user_id: userId,
       category_id: expense.cat,
       amount: expense.amount,
       note: expense.note || "",
       expense_date: expense.date,
     };
+    if (expense.fxRate != null) row.fx_rate = expense.fxRate;
+    return row;
   },
 
   /** Load all expenses for the signed-in user, newest first. */
   async fetchAll(userId) {
     const { data, error } = await this._db()
       .from("expenses")
-      .select("id, category_id, amount, note, expense_date")
+      .select("id, category_id, amount, note, expense_date, fx_rate")
       .eq("user_id", userId)
       .order("expense_date", { ascending: false });
     if (error) throw error;
@@ -52,7 +55,7 @@ const SpendData = {
     const { data, error } = await this._db()
       .from("expenses")
       .insert(this._toRow(userId, payload))
-      .select("id, category_id, amount, note, expense_date")
+      .select("id, category_id, amount, note, expense_date, fx_rate")
       .single();
     if (error) throw error;
     return this.rowToExpense(data);
@@ -67,9 +70,10 @@ const SpendData = {
         amount: payload.amount,
         note: payload.note || "",
         expense_date: payload.date,
+        fx_rate: payload.fxRate ?? null,
       })
       .eq("id", id)
-      .select("id, category_id, amount, note, expense_date")
+      .select("id, category_id, amount, note, expense_date, fx_rate")
       .single();
     if (error) throw error;
     return this.rowToExpense(data);
@@ -87,7 +91,7 @@ const SpendData = {
     const { data, error } = await this._db()
       .from("expenses")
       .insert(list.map((e) => this._toRow(userId, e)))
-      .select("id, category_id, amount, note, expense_date");
+      .select("id, category_id, amount, note, expense_date, fx_rate");
     if (error) throw error;
     return (data || []).map((row) => this.rowToExpense(row));
   },

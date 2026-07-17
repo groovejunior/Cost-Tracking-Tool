@@ -37,18 +37,26 @@ function paintIcons(root) {
 }
 
 /* ---------- data ---------- */
-const CATS = [
-  { id: "rent", name: "Rent", color: "#5B51C6", icon: "home", fixed: true },
+const DEFAULT_CATS = [
+  /* Variable spending */
   { id: "groceries", name: "Groceries", color: "#5E9022", icon: "cart", fixed: false },
   { id: "eating", name: "Eating out", color: "#D2582E", icon: "food", fixed: false },
   { id: "transport", name: "Transport", color: "#2F82D6", icon: "bus", fixed: false },
   { id: "trips", name: "Trips", color: "#1B9670", icon: "plane", fixed: false },
   { id: "nightlife", name: "Nightlife", color: "#CB4E77", icon: "glass", fixed: false },
-  { id: "subs", name: "Subscriptions", color: "#B06E14", icon: "refresh", fixed: true },
   { id: "household", name: "Household", color: "#726D64", icon: "bucket", fixed: false },
+  /* Fixed spending */
+  { id: "rent", name: "Rent", color: "#5B51C6", icon: "home", fixed: true },
+  { id: "subs", name: "Subscriptions", color: "#B06E14", icon: "refresh", fixed: true },
 ];
-const catById = (id) => CATS.find((c) => c.id === id);
-const VARIABLE_BUDGET = 600;
+const PICK_COLORS = ["#5B51C6", "#5E9022", "#D2582E", "#2F82D6", "#1B9670", "#CB4E77", "#B06E14", "#726D64"];
+const PICK_ICONS = ["home", "cart", "food", "bus", "plane", "glass", "refresh", "bucket", "list", "chart", "dots"];
+let categories = DEFAULT_CATS.map((c) => ({ ...c }));
+const catById = (id) =>
+  categories.find((c) => c.id === id) || { id, name: "Other", color: "#726D64", icon: "dots", fixed: false };
+const DEFAULT_VARIABLE_BUDGET = 1000;
+let variableBudget = DEFAULT_VARIABLE_BUDGET;
+let catEditor = null; /* { id, fixed, isNew } when editing in More */
 
 let uid = 1;
 const nid = () => "e" + uid++;
@@ -78,13 +86,14 @@ function buildDemoExpenses() {
   const nextId = () => "e" + counter++;
   const span = Math.max(1, Math.min(new Date().getDate(), 24));
   const list = [
-    { id: nextId(), cat: "rent", amount: 450, note: "", date: d(1, 9) },
-    { id: nextId(), cat: "subs", amount: 10.99, note: "Spotify", date: d(2, 8) },
-    { id: nextId(), cat: "subs", amount: 12.5, note: "Phone plan", date: d(3, 8) },
+    { id: nextId(), cat: "rent", amount: 750, note: "", date: d(1, 9) },
+    { id: nextId(), cat: "subs", amount: 18, note: "Spotify", date: d(2, 8) },
+    { id: nextId(), cat: "subs", amount: 21, note: "Phone plan", date: d(3, 8) },
   ];
   _varSeed.forEach((s, i) => {
     const day = 1 + Math.round((span - 1) * (i / (_varSeed.length - 1)));
-    list.push({ id: nextId(), cat: s[0], amount: s[1], note: s[2], date: d(day, 9 + (i % 12)) });
+    const amount = Math.round(s[1] * window.SpendRates.DEFAULT_RATE * 100) / 100;
+    list.push({ id: nextId(), cat: s[0], amount, note: s[2], date: d(day, 9 + (i % 12)) });
   });
   return { expenses: list, uid: counter };
 }
@@ -104,6 +113,157 @@ function useCloud() {
 
 function setExpenseStoreKey(userId) {
   storeKey = userId ? "spend_v1_" + userId : "spend_v1";
+}
+
+function settingsStoreKey(userId) {
+  return userId ? "spend_settings_" + userId : "spend_settings";
+}
+
+function readLocalSettings(userId) {
+  try {
+    const raw = localStorage.getItem(settingsStoreKey(userId));
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    return p && typeof p === "object" ? p : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeLocalSettings(userId, settings) {
+  try {
+    localStorage.setItem(settingsStoreKey(userId), JSON.stringify(settings));
+  } catch (e) {}
+}
+
+async function loadUserSettings(userId) {
+  if (!userId) {
+    variableBudget = DEFAULT_VARIABLE_BUDGET;
+    return;
+  }
+
+  const local = readLocalSettings(userId);
+  if (local && local.variableBudget > 0) variableBudget = local.variableBudget;
+
+  if (!window.SpendSettings?.isEnabled()) return;
+
+  try {
+    let row = await window.SpendSettings.fetch(userId);
+    if (!row) row = await window.SpendSettings.ensure(userId, DEFAULT_VARIABLE_BUDGET);
+    if (row?.variable_budget > 0) {
+      variableBudget = Number(row.variable_budget);
+      writeLocalSettings(userId, { variableBudget });
+    }
+  } catch (e) {
+    console.warn("[Spend] Could not load settings:", e.message);
+  }
+}
+
+async function saveVariableBudget(amount) {
+  variableBudget = Math.round(amount * 100) / 100;
+  if (currentUser) writeLocalSettings(currentUser.id, { variableBudget });
+  if (useCloud() && window.SpendSettings) {
+    await window.SpendSettings.updateBudget(currentUser.id, variableBudget);
+  }
+}
+
+function categoriesStoreKey(userId) {
+  return userId ? "spend_categories_" + userId : "spend_categories";
+}
+
+function readLocalCategories(userId) {
+  try {
+    const raw = localStorage.getItem(categoriesStoreKey(userId));
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    return Array.isArray(p) ? p : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeLocalCategories(userId, list) {
+  try {
+    localStorage.setItem(categoriesStoreKey(userId), JSON.stringify(list));
+  } catch (e) {}
+}
+
+function cloneDefaultCategories() {
+  return DEFAULT_CATS.map((c) => ({ ...c }));
+}
+
+async function loadCategories(userId) {
+  if (!userId) {
+    categories = cloneDefaultCategories();
+    return;
+  }
+
+  const local = readLocalCategories(userId);
+  if (local?.length) categories = local.map((c) => ({ ...c }));
+
+  let normalizedGroceries = false;
+  const groceriesLocal = categories.find((c) => c.id === "groceries");
+  if (groceriesLocal?.fixed) {
+    groceriesLocal.fixed = false;
+    normalizedGroceries = true;
+  }
+
+  if (!window.SpendCategories?.isEnabled()) {
+    if (!categories.length) categories = cloneDefaultCategories();
+    else if (normalizedGroceries) writeLocalCategories(userId, categories);
+    return;
+  }
+
+  try {
+    let list = await window.SpendCategories.fetchAll(userId);
+    if (!list.length) {
+      list = cloneDefaultCategories();
+      await window.SpendCategories.saveAll(userId, list);
+    }
+    categories = list.map((c) => ({ ...c }));
+    const groceries = categories.find((c) => c.id === "groceries");
+    if (groceries?.fixed) {
+      groceries.fixed = false;
+      await window.SpendCategories.saveAll(userId, categories);
+    }
+    writeLocalCategories(userId, categories);
+  } catch (e) {
+    if (!categories.length) categories = cloneDefaultCategories();
+    console.warn("[Spend] Could not load categories:", e.message);
+  }
+}
+
+async function persistCategories() {
+  if (currentUser) writeLocalCategories(currentUser.id, categories);
+  if (useCloud() && window.SpendCategories) {
+    await window.SpendCategories.saveAll(currentUser.id, categories);
+  }
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/"/g, "&quot;");
+}
+
+function makeCatId(name) {
+  let base =
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "") || "category";
+  let id = base;
+  let n = 2;
+  while (categories.some((c) => c.id === id)) {
+    id = base + "_" + n++;
+  }
+  return id;
+}
+
+function categoryInUse(id) {
+  return expenses.some((e) => e.cat === id);
 }
 
 function readLocalExpenses() {
@@ -189,8 +349,29 @@ function setAppLoading(loading) {
 }
 
 /* ---------- helpers ---------- */
-const eur = new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" });
-const money = (n) => eur.format(n);
+const audFmt = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" });
+const eurFmt = new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR", minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const money = (n) => audFmt.format(n);
+/** EUR/AUD rate for one expense (saved snapshot, or lookup for that month). */
+function expenseRate(e) {
+  return e.fxRate || window.SpendRates.rateFor(e.date);
+}
+/** EUR hint: round up to one decimal (e.g. €18.9). */
+function moneyEurAt(aud, rate) {
+  const eur = aud / rate;
+  return eurFmt.format(Math.ceil(eur * 10) / 10);
+}
+/** Hero total — AUD large + single ≈ € hint. */
+function moneyHero(aud, rate) {
+  return `<div class="moneyblock hero-money"><div class="money-main tabular">${money(aud)}</div><div class="money-eur tabular">≈ ${moneyEurAt(aud, rate)}</div></div>`;
+}
+/** AUD + € hint (category cards, expense rows). */
+function moneyStack(aud, rate) {
+  return `<div class="moneyblock"><div class="money-main tabular">${money(aud)}</div><div class="money-eur tabular">${moneyEurAt(aud, rate)}</div></div>`;
+}
+function moneyStackExpense(e) {
+  return moneyStack(e.amount, expenseRate(e));
+}
 function thisMonth(e) {
   const d = new Date(e.date);
   const n = new Date();
@@ -211,6 +392,9 @@ function shiftViewMonth(delta) {
   if (next > current) return;
   viewMonth = next;
   renderHome();
+  void window.SpendRates.ensureForDate(viewMonth).then((updated) => {
+    if (updated) renderHome();
+  });
 }
 function startDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
@@ -263,20 +447,23 @@ function renderHome() {
   const total = month.reduce((s, e) => s + e.amount, 0);
   const fixed = month.filter((e) => catById(e.cat).fixed).reduce((s, e) => s + e.amount, 0);
   const variable = total - fixed;
-  const left = VARIABLE_BUDGET - variable;
-  const pct = Math.min(100, Math.round((variable / VARIABLE_BUDGET) * 100));
-  const over = variable > VARIABLE_BUDGET;
+  const left = variableBudget - variable;
+  const pct = Math.min(100, Math.round((variable / variableBudget) * 100));
+  const over = variable > variableBudget;
 
-  const byCat = CATS.map((c) => ({
+  const byCat = categories
+    .map((c) => ({
     c,
     sum: month.filter((e) => e.cat === c.id).reduce((s, e) => s + e.amount, 0),
   }))
     .filter((x) => x.sum > 0)
     .sort((a, b) => b.sum - a.sum);
-  const fixedNames = CATS.filter((c) => c.fixed && month.some((e) => e.cat === c.id))
+  const fixedNames = categories
+    .filter((c) => c.fixed && month.some((e) => e.cat === c.id))
     .map((c) => c.name)
     .join(", ");
   const recent = [...month].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4);
+  const fx = window.SpendRates.rateFor(viewMonth);
 
   const catCards = byCat
     .map(
@@ -284,7 +471,7 @@ function renderHome() {
     <div class="catcard">
       <div class="dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
       <div class="cn">${c.name}</div>
-      <div class="cv tabular">${money(sum)}</div>
+      <div class="cv">${moneyStack(sum, fx)}</div>
     </div>`
     )
     .join("");
@@ -297,7 +484,7 @@ function renderHome() {
     <div class="rowwrap"><div class="row">
       <div class="badge" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
       <div class="rmid"><div class="t">${e.note || c.name}</div><div class="s">${c.name}</div></div>
-      <div class="rright"><div class="amt tabular">${money(e.amount)}</div><div class="dt">${dayLabel(e.date)}</div></div>
+      <div class="rright">${moneyStackExpense(e)}<div class="dt">${dayLabel(e.date)}</div></div>
     </div></div>`;
       })
       .join("") || `<div class="empty">No expenses in this month.</div>`;
@@ -309,15 +496,19 @@ function renderHome() {
   document.getElementById("homeScroll").innerHTML = `
     <div class="hero">
       <div class="lbl">${isCurrentViewMonth() ? "Spent this month" : "Spent in " + viewMonth.toLocaleDateString("en-GB", { month: "long" })}</div>
-      <div class="total tabular">${money(total)}</div>
+      <div class="total">${moneyHero(total, fx)}</div>
       <div class="bar ${over ? "over" : ""}"><i style="width:${pct}%"></i></div>
-      <div class="budgetline">
-        <span class="a tabular">${money(variable)} <span style="color:var(--muted);font-weight:400">of ${money(VARIABLE_BUDGET)} variable</span></span>
-        <span class="b tabular">${over ? money(-left) + " over" : money(left) + " left"}</span>
-      </div>
-      <div class="fixedline">
-        <span class="icon" data-ico="lock"></span>
-        Fixed ${money(fixed)}${fixedNames ? " · " + fixedNames : ""} · ${daysNote}
+      <div class="budgetrows">
+        <div class="budgetrow">
+          <span class="budgetlbl">Variable</span>
+          <span class="budgetmid"><span class="tabular">${money(variable)}</span> <span class="budget-of">of ${money(variableBudget)}</span></span>
+          <span class="budgetright ${over ? "over" : ""} tabular">${over ? money(-left) + " over" : money(left) + " left"}</span>
+        </div>
+        <div class="budgetrow">
+          <span class="budgetlbl"><span class="icon" data-ico="lock"></span> Fixed</span>
+          <span class="budgetmid tabular">${money(fixed)}</span>
+          <span class="budgetmeta">${fixedNames ? fixedNames + " · " : ""}${daysNote}</span>
+        </div>
       </div>
     </div>
     <button class="addbtn" data-nav="add"><span class="icon" data-ico="plus"></span>Add expense</button>
@@ -332,7 +523,7 @@ function renderHome() {
 
 /* ---------- LIST ---------- */
 function renderFilters() {
-  const used = CATS.filter((c) => expenses.some((e) => e.cat === c.id));
+  const used = categories.filter((c) => expenses.some((e) => e.cat === c.id));
   const chips = [{ id: "all", name: "All" }, ...used];
   document.getElementById("filterChips").innerHTML = chips
     .map((c) => `<button class="chip ${filter === c.id ? "active" : ""}" data-filter="${c.id}">${c.name}</button>`)
@@ -368,7 +559,7 @@ function renderList() {
         <div class="row">
           <div class="badge" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
           <div class="rmid"><div class="t">${e.note || c.name}</div><div class="s">${c.name}</div></div>
-          <div class="rright"><div class="amt tabular">${money(e.amount)}</div></div>
+          <div class="rright">${moneyStackExpense(e)}</div>
         </div>
       </div>`;
   });
@@ -379,7 +570,8 @@ function renderList() {
 
 /* ---------- ADD ---------- */
 function renderPicker() {
-  document.getElementById("pickGrid").innerHTML = CATS.map(
+  document.getElementById("pickGrid").innerHTML = categories
+    .map(
     (c) => `
     <button class="pick ${draft.cat === c.id ? "sel" : ""}" data-cat="${c.id}">
       <span class="pdot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>${c.name}
@@ -388,7 +580,13 @@ function renderPicker() {
   paintIcons(document.getElementById("pickGrid"));
 }
 function parseAmount(str) {
-  const n = parseFloat(String(str).replace(/\./g, "").replace(",", "."));
+  const s = String(str).trim().replace(/[^0-9.,]/g, "");
+  if (!s) return 0;
+  if (s.includes(",") && !s.includes(".")) {
+    const n = parseFloat(s.replace(",", "."));
+    return isNaN(n) ? 0 : n;
+  }
+  const n = parseFloat(s.replace(/,/g, ""));
   return isNaN(n) ? 0 : n;
 }
 function refreshSave() {
@@ -429,7 +627,7 @@ function openEdit(id) {
   draft.cat = e.cat;
   draft.note = e.note || "";
   draft.day = isoDay(new Date(e.date));
-  document.getElementById("amtInput").value = e.amount.toFixed(2).replace(".", ",");
+  document.getElementById("amtInput").value = e.amount.toFixed(2);
   document.getElementById("noteInput").value = e.note || "";
   document.getElementById("addTitle").textContent = "Edit expense";
   document.getElementById("saveBtn").textContent = "Save changes";
@@ -445,6 +643,9 @@ async function commitAdd() {
     note: document.getElementById("noteInput").value.trim(),
     date: stampFor(draft.day),
   };
+
+  await window.SpendRates.ensureForDate(payload.date);
+  payload.fxRate = window.SpendRates.snapshotFor(payload.date);
 
   const btn = document.getElementById("saveBtn");
   btn.disabled = true;
@@ -532,6 +733,189 @@ function renderAnalyse() {
   paintIcons(el);
 }
 
+function renderCategoryRow(c) {
+  return `<button type="button" class="catlist-row" data-edit-cat="${esc(c.id)}">
+    <span class="catlist-dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>
+    <span class="catlist-name">${esc(c.name)}</span>
+    <span class="icon catlist-chev" data-ico="chevronRight"></span>
+  </button>`;
+}
+
+function renderCategoryList(fixed) {
+  const list = categories.filter((c) => !!c.fixed === fixed);
+  const rows = list.map(renderCategoryRow).join("");
+  const empty = `<div class="catlist-empty">${fixed ? "No fixed categories yet." : "No variable categories yet."}</div>`;
+  return `<div class="catlist-block">
+    <div class="catlist-head">
+      <span class="catlist-title">${fixed ? "Fixed spending" : "Variable spending"}</span>
+      <button type="button" class="catlist-add" data-add-cat="${fixed ? "fixed" : "variable"}">+ Add</button>
+    </div>
+    <div class="catlist-rows">${rows || empty}</div>
+  </div>`;
+}
+
+function renderCatEditor() {
+  if (!catEditor) return "";
+  const c = catEditor.isNew
+    ? { name: "", color: PICK_COLORS[0], icon: PICK_ICONS[0], fixed: catEditor.fixed }
+    : catById(catEditor.id);
+  const canDelete = !catEditor.isNew && !categoryInUse(catEditor.id);
+  const colorBtns = PICK_COLORS.map(
+    (col) =>
+      `<button type="button" class="swatch ${c.color === col ? "on" : ""}" data-pick-color="${col}" style="background:${col}" aria-label="Colour ${col}"></button>`
+  ).join("");
+  const iconBtns = PICK_ICONS.map(
+    (ico) =>
+      `<button type="button" class="ipick ${c.icon === ico ? "on" : ""}" data-pick-icon="${ico}" aria-label="Icon ${ico}"><span class="icon" data-ico="${ico}"></span></button>`
+  ).join("");
+  return `<div class="cateditor" id="catEditor">
+    <div class="cateditor-title">${catEditor.isNew ? "New category" : "Edit category"}</div>
+    <div class="field">
+      <div class="fl">Name</div>
+      <input class="noteinput" id="catNameInput" value="${esc(c.name)}" placeholder="e.g. Pet care" autocomplete="off">
+    </div>
+    <div class="field">
+      <div class="fl">Colour</div>
+      <div class="swatches" id="colorPick">${colorBtns}</div>
+    </div>
+    <div class="field">
+      <div class="fl">Icon</div>
+      <div class="iconpicks" id="iconPick">${iconBtns}</div>
+    </div>
+    <label class="fixedtoggle">
+      <input type="checkbox" id="catFixedToggle" ${c.fixed ? "checked" : ""}>
+      <span>Fixed spending <span class="fixedtoggle-hint">(rent, subscriptions — not part of variable budget)</span></span>
+    </label>
+    <div class="cateditor-actions">
+      <button type="button" class="savebtn" id="catSaveBtn">${catEditor.isNew ? "Add category" : "Save changes"}</button>
+      ${canDelete ? '<button type="button" class="catdelbtn" id="catDeleteBtn">Delete</button>' : ""}
+      <button type="button" class="catcancelbtn" id="catCancelBtn">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function openCatEditor(id, fixedDefault) {
+  if (id) {
+    const c = catById(id);
+    catEditor = { id: c.id, fixed: c.fixed, isNew: false };
+  } else {
+    catEditor = { id: null, fixed: !!fixedDefault, isNew: true };
+  }
+  renderMore();
+}
+
+function closeCatEditor() {
+  catEditor = null;
+  renderMore();
+}
+
+function readCatEditorForm() {
+  const name = (document.getElementById("catNameInput")?.value || "").trim();
+  const fixed = !!document.getElementById("catFixedToggle")?.checked;
+  const colorBtn = document.querySelector("#colorPick .swatch.on");
+  const iconBtn = document.querySelector("#iconPick .ipick.on");
+  const color = colorBtn?.dataset.pickColor || PICK_COLORS[0];
+  const icon = iconBtn?.dataset.pickIcon || PICK_ICONS[0];
+  return { name, fixed, color, icon };
+}
+
+function wireCatEditor() {
+  const panel = document.getElementById("stubContent");
+  if (!panel) return;
+
+  panel.querySelector("#catSaveBtn")?.addEventListener("click", () => {
+    void handleSaveCategory();
+  });
+  panel.querySelector("#catDeleteBtn")?.addEventListener("click", () => {
+    void handleDeleteCategory();
+  });
+  panel.querySelector("#catCancelBtn")?.addEventListener("click", closeCatEditor);
+
+  panel.querySelector("#colorPick")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-pick-color]");
+    if (!btn) return;
+    panel.querySelectorAll("#colorPick .swatch").forEach((b) => b.classList.toggle("on", b === btn));
+  });
+  panel.querySelector("#iconPick")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-pick-icon]");
+    if (!btn) return;
+    panel.querySelectorAll("#iconPick .ipick").forEach((b) => b.classList.toggle("on", b === btn));
+  });
+}
+
+function wireMorePanel() {
+  const panel = document.getElementById("stubContent");
+  if (!panel || panel._wired) return;
+  panel._wired = true;
+
+  panel.addEventListener("click", (e) => {
+    const add = e.target.closest("[data-add-cat]");
+    if (add) {
+      openCatEditor(null, add.dataset.addCat === "fixed");
+      return;
+    }
+    const edit = e.target.closest("[data-edit-cat]");
+    if (edit) {
+      openCatEditor(edit.dataset.editCat);
+    }
+  });
+}
+
+async function handleSaveCategory() {
+  const { name, fixed, color, icon } = readCatEditorForm();
+  if (!name) {
+    showToast("Enter a category name.");
+    return;
+  }
+
+  const btn = document.getElementById("catSaveBtn");
+  if (btn) btn.disabled = true;
+  try {
+    if (catEditor.isNew) {
+      categories.push({ id: makeCatId(name), name, color, icon, fixed });
+    } else {
+      const c = categories.find((x) => x.id === catEditor.id);
+      if (!c) return;
+      c.name = name;
+      c.color = color;
+      c.icon = icon;
+      c.fixed = fixed;
+    }
+    await persistCategories();
+    catEditor = null;
+    renderMore();
+    if (currentScreen === "home") renderHome();
+    if (currentScreen === "list") renderList();
+    showToast("Category saved.");
+  } catch (err) {
+    showToast(err.message || "Could not save category.");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function handleDeleteCategory() {
+  if (!catEditor || catEditor.isNew) return;
+  if (categoryInUse(catEditor.id)) {
+    showToast("Remove expenses from this category first.");
+    return;
+  }
+  if (categories.length <= 1) {
+    showToast("Keep at least one category.");
+    return;
+  }
+
+  try {
+    categories = categories.filter((c) => c.id !== catEditor.id);
+    await persistCategories();
+    catEditor = null;
+    renderMore();
+    showToast("Category deleted.");
+  } catch (err) {
+    showToast(err.message || "Could not delete category.");
+  }
+}
+
 function renderMore() {
   document.getElementById("stubTitle").textContent = "More";
   const el = document.getElementById("stubContent");
@@ -540,11 +924,45 @@ function renderMore() {
     el.innerHTML = `
       <div class="account-card">
         <div class="lbl">Signed in as</div>
-        <div class="email">${currentUser.email || "Account"}</div>
+        <div class="email">${esc(currentUser.email || "Account")}</div>
+      </div>
+      <div class="account-card">
+        <div class="lbl">Variable spending limit</div>
+        <p class="settings-hint">Monthly cap for flexible costs. Fixed categories below don't count toward this.</p>
+        <div class="budget-field">
+          <span class="budget-cur">AUD</span>
+          <input class="budget-input tabular" id="budgetInput" type="text" inputmode="decimal"
+                 autocomplete="off" aria-label="Variable spending limit in Australian dollars"
+                 value="${variableBudget.toFixed(2)}">
+        </div>
+        <button type="button" class="savebtn settings-save" id="saveBudgetBtn">Save limit</button>
+      </div>
+      <div class="account-card">
+        <div class="lbl">Categories</div>
+        <p class="settings-hint">Customise labels for variable and fixed spending. Tap a category to edit.</p>
+        ${renderCategoryList(false)}
+        ${renderCategoryList(true)}
+        ${renderCatEditor()}
       </div>
       <button type="button" class="logoutbtn" id="logoutBtn">Sign out</button>
     `;
+    document.getElementById("saveBudgetBtn").addEventListener("click", () => {
+      void handleSaveBudget();
+    });
+    document.getElementById("budgetInput").addEventListener("input", (e) => {
+      e.target.value = e.target.value.replace(/[^0-9.,]/g, "");
+    });
+    document.getElementById("budgetInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void handleSaveBudget();
+      }
+    });
     document.getElementById("logoutBtn").addEventListener("click", handleLogout);
+    wireMorePanel();
+    wireCatEditor();
+    paintIcons(el);
+    if (catEditor) document.getElementById("catNameInput")?.focus();
     return;
   }
   el.className = "stub";
@@ -554,6 +972,29 @@ function renderMore() {
     <p>Budget, categories, currency, and export. Kept out of the way so the core loop stays fast.</p>
   `;
   paintIcons(el);
+}
+
+async function handleSaveBudget() {
+  const input = document.getElementById("budgetInput");
+  if (!input) return;
+  const amount = parseAmount(input.value);
+  if (!(amount > 0)) {
+    showToast("Enter a valid spending limit.");
+    return;
+  }
+
+  const btn = document.getElementById("saveBudgetBtn");
+  if (btn) btn.disabled = true;
+  try {
+    await saveVariableBudget(amount);
+    input.value = variableBudget.toFixed(2);
+    showToast("Spending limit saved.");
+    if (currentScreen === "home") renderHome();
+  } catch (err) {
+    showToast(err.message || "Could not save spending limit.");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 /* ---------- auth ---------- */
@@ -568,6 +1009,8 @@ function showSetupScreen() {
 
 function showAuthScreen() {
   currentUser = null;
+  catEditor = null;
+  categories = cloneDefaultCategories();
   const app = document.getElementById("app");
   app.classList.add("auth-mode");
   app.classList.remove("modal");
@@ -582,6 +1025,9 @@ async function enterApp(session) {
   setAppLoading(true);
   try {
     await hydrateExpenses();
+    await loadUserSettings(currentUser?.id);
+    await loadCategories(currentUser?.id);
+    await window.SpendRates.ensureForExpenses(expenses);
     document.getElementById("app").classList.remove("auth-mode");
     paintIcons(document);
     paintIcons(document.getElementById("monthSwitcher"));
