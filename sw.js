@@ -1,4 +1,4 @@
-const CACHE_NAME = "spend-v12";
+const CACHE_NAME = "spend-v13";
 const ASSETS = [
   "./",
   "./index.html",
@@ -65,6 +65,9 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
   const url = new URL(event.request.url);
+  /* Only cache this app's own files — never Supabase, FX APIs, or CDNs. */
+  if (url.origin !== self.location.origin) return;
+
   if (isAppShell(url)) {
     event.respondWith(networkFirst(event.request));
   } else {

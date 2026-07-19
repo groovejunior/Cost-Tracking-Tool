@@ -323,16 +323,25 @@ function syncUidFromExpenses() {
   });
 }
 
-async function fetchCloudExpenses(userId) {
-  let last = [];
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const session = await window.SpendAuth.getSession();
-    if (!session) break;
-    last = await window.SpendData.fetchAll(userId);
-    if (last.length > 0) return last;
-    await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+function mergeCloudAndLocal(cloudRows, local) {
+  const byId = new Map(cloudRows.map((e) => [e.id, e]));
+  for (const item of local) {
+    if (!byId.has(item.id)) byId.set(item.id, item);
   }
-  return last;
+  return [...byId.values()];
+}
+
+async function fetchCloudExpenses(userId) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await window.SpendAuth.ensureReady();
+      return await window.SpendData.fetchAll(userId);
+    } catch (e) {
+      if (attempt === 4) throw e;
+      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+    }
+  }
+  return [];
 }
 
 /** Upload local-only expenses that are not in the cloud yet. */
@@ -362,6 +371,7 @@ async function syncPendingToCloud() {
 async function refreshFromCloud() {
   if (!useCloud() || !isOnline()) return false;
   try {
+    await window.SpendAuth.ensureReady();
     const rows = await window.SpendData.fetchAll(currentUser.id);
     expenses = rows;
     save();
@@ -409,17 +419,7 @@ async function hydrateExpenses() {
     }
   }
 
-  const cloudIds = new Set(cloudRows.map((e) => e.id));
-  const pendingFromLocal = local.filter((e) => isPendingExpense(e) && !cloudIds.has(e.id));
-
-  expenses = [...cloudRows];
-  for (const item of pendingFromLocal) {
-    if (!expenses.some((e) => e.id === item.id)) expenses.push(item);
-  }
-
-  if (!cloudRows.length && !pendingFromLocal.length && local.length > 0) {
-    expenses = local;
-  }
+  expenses = mergeCloudAndLocal(cloudRows, local);
 
   syncUidFromExpenses();
 
