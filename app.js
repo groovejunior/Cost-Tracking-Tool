@@ -1053,8 +1053,6 @@ function showAuthScreen() {
   clearAuthMessage();
 }
 
-let appReady = false;
-
 async function enterApp(session) {
   currentUser = session ? session.user : null;
   if (currentUser) setExpenseStoreKey(currentUser.id);
@@ -1179,12 +1177,6 @@ async function bootstrap() {
 
   /* Subscribe BEFORE getSession — INITIAL_SESSION fires when auth is truly ready */
   window.SpendAuth.onAuthStateChange((event, session) => {
-    if (!session) {
-      appReady = false;
-      showAuthScreen();
-      return;
-    }
-    if (event === "TOKEN_REFRESHED") return;
     if (event === "INITIAL_SESSION") {
       if (!bootHandled) {
         bootHandled = true;
@@ -1192,6 +1184,12 @@ async function bootstrap() {
       }
       return;
     }
+    if (!session) {
+      appReady = false;
+      showAuthScreen();
+      return;
+    }
+    if (event === "TOKEN_REFRESHED") return;
     if (event === "SIGNED_IN") void startApp(session);
   });
 
