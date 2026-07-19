@@ -30,17 +30,21 @@ input{font-family:inherit;}
 .topbar{display:flex;align-items:center;justify-content:space-between;
   padding:14px 16px 10px;flex-shrink:0;}
 .topbar h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em;}
-.topbar--center{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;}
+.topbar--center{display:grid;grid-template-columns:40px 1fr 40px;align-items:center;}
 .topbar--center h1{text-align:center;font-size:16px;grid-column:2;}
 .month{display:flex;align-items:center;gap:5px;font-size:18px;font-weight:600;letter-spacing:-.01em;}
 .month-switch{display:flex;align-items:center;gap:2px;}
-.month-switch .iconbtn{color:var(--ink);padding:8px 6px;}
-.month-switch .iconbtn .icon{width:28px;height:28px;}
+.month-switch .iconbtn{color:var(--ink);}
+.month-switch .iconbtn.icon,
+#addBack.icon{
+  width:36px;height:36px;min-width:36px;min-height:36px;padding:0;
+  display:grid;place-items:center;flex-shrink:0;
+}
+.month-switch .iconbtn.icon svg,
+#addBack.icon svg{width:26px;height:26px;display:block;}
 .month-switch .iconbtn:disabled{opacity:.35;cursor:default;}
 .iconbtn{background:none;border:none;padding:6px;border-radius:10px;color:var(--muted);display:grid;place-items:center;}
 .iconbtn:active{background:var(--hair);}
-#addBack{padding:8px;}
-#addBack .icon{width:28px;height:28px;}
 .icon{width:22px;height:22px;display:inline-block;vertical-align:middle;}
 .icon svg{width:100%;height:100%;display:block;}
 
