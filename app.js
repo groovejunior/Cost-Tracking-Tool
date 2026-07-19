@@ -298,10 +298,9 @@ function syncUidFromExpenses() {
 }
 
 async function fetchCloudExpenses(userId) {
-  await window.SpendAuth.ensureReady();
   let rows = await window.SpendData.fetchAll(userId);
   if (!rows.length) {
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 300));
     rows = await window.SpendData.fetchAll(userId);
   }
   return rows;
@@ -461,6 +460,8 @@ let authMode = "signin";
 let filter = "all";
 let openRow = null;
 let editingId = null;
+let appReady = false;
+let enterAppRunning = false;
 const now = new Date();
 let viewMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 const draft = { amount: 0, cat: null, note: "", day: todayStr() };
@@ -1032,6 +1033,7 @@ async function handleSaveBudget() {
 
 /* ---------- auth ---------- */
 function showSetupScreen() {
+  setAppLoading(false);
   currentUser = null;
   const app = document.getElementById("app");
   app.classList.add("auth-mode");
@@ -1041,6 +1043,7 @@ function showSetupScreen() {
 }
 
 function showAuthScreen() {
+  setAppLoading(false);
   currentUser = null;
   appReady = false;
   catEditor = null;
@@ -1054,25 +1057,32 @@ function showAuthScreen() {
 }
 
 async function enterApp(session) {
+  if (enterAppRunning) return;
+  enterAppRunning = true;
   currentUser = session ? session.user : null;
   if (currentUser) setExpenseStoreKey(currentUser.id);
   setAppLoading(true);
   try {
     await hydrateExpenses();
-    await loadUserSettings(currentUser?.id);
-    await loadCategories(currentUser?.id);
-    await window.SpendRates.ensureForExpenses(expenses);
     document.getElementById("app").classList.remove("auth-mode");
     paintIcons(document);
     paintIcons(document.getElementById("monthSwitcher"));
     showScreen("home");
     appReady = true;
+    void loadUserSettings(currentUser?.id)
+      .then(() => loadCategories(currentUser?.id))
+      .then(() => window.SpendRates.ensureForExpenses(expenses))
+      .then((updated) => {
+        if (updated && currentScreen === "home") renderHome();
+      })
+      .catch((e) => console.warn("[Spend] Background sync:", e.message));
   } catch (err) {
     showToast(err.message || "Could not load your expenses.");
     showAuthScreen();
     appReady = false;
   } finally {
     setAppLoading(false);
+    enterAppRunning = false;
   }
 }
 
@@ -1153,18 +1163,6 @@ function wireAuthForm() {
   });
 }
 
-let appReady = false;
-let bootHandled = false;
-
-async function startApp(session) {
-  if (!session) {
-    appReady = false;
-    showAuthScreen();
-    return;
-  }
-  await enterApp(session);
-}
-
 async function bootstrap() {
   wireAuthForm();
   paintIcons(document);
@@ -1175,28 +1173,22 @@ async function bootstrap() {
     return;
   }
 
-  /* Subscribe BEFORE getSession — INITIAL_SESSION fires when auth is truly ready */
   window.SpendAuth.onAuthStateChange((event, session) => {
-    if (event === "INITIAL_SESSION") {
-      if (!bootHandled) {
-        bootHandled = true;
-        void startApp(session);
-      }
-      return;
-    }
+    if (event === "TOKEN_REFRESHED") return;
     if (!session) {
       appReady = false;
       showAuthScreen();
       return;
     }
-    if (event === "TOKEN_REFRESHED") return;
-    if (event === "SIGNED_IN") void startApp(session);
+    if (event === "SIGNED_IN") void enterApp(session);
   });
 
   const session = await window.SpendAuth.getSession();
-  if (!bootHandled) {
-    bootHandled = true;
-    await startApp(session);
+  if (session) {
+    await new Promise((r) => setTimeout(r, 150));
+    await enterApp(session);
+  } else {
+    showAuthScreen();
   }
 
   registerServiceWorker();
