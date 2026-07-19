@@ -278,7 +278,6 @@ function readLocalExpenses() {
 }
 
 function save() {
-  if (useCloud()) return;
   try {
     localStorage.setItem(storeKey, JSON.stringify(expenses));
   } catch (e) {}
@@ -298,11 +297,21 @@ function syncUidFromExpenses() {
   });
 }
 
+async function fetchCloudExpenses(userId) {
+  await window.SpendAuth.ensureReady();
+  let rows = await window.SpendData.fetchAll(userId);
+  if (!rows.length) {
+    await new Promise((r) => setTimeout(r, 200));
+    rows = await window.SpendData.fetchAll(userId);
+  }
+  return rows;
+}
+
 /**
  * Load expenses on sign-in:
  * 1. Cloud data (if any)
- * 2. Else migrate browser localStorage → cloud
- * 3. Else seed demo data to cloud
+ * 2. Else local cache backup
+ * 3. Else seed demo data once
  */
 async function hydrateExpenses() {
   if (!useCloud()) {
@@ -314,23 +323,45 @@ async function hydrateExpenses() {
     return;
   }
 
-  const rows = await window.SpendData.fetchAll(currentUser.id);
-  if (rows.length > 0) {
-    expenses = rows;
+  const local = readLocalExpenses();
+
+  try {
+    const rows = await fetchCloudExpenses(currentUser.id);
+    if (rows.length > 0) {
+      expenses = rows;
+      save();
+      return;
+    }
+  } catch (e) {
+    if (local.length > 0) {
+      expenses = local;
+      syncUidFromExpenses();
+      console.warn("[Spend] Using local expense cache:", e.message);
+      return;
+    }
+    throw e;
+  }
+
+  /* Cloud returned empty — use phone backup (same data you just saved) */
+  if (local.length > 0) {
+    expenses = local;
+    syncUidFromExpenses();
     return;
   }
 
-  const local = readLocalExpenses();
-  if (local.length > 0) {
-    expenses = await window.SpendData.insertMany(currentUser.id, local);
-    try {
-      localStorage.removeItem(storeKey);
-    } catch (e) {}
+  const seededKey = storeKey + "_demo_seeded";
+  if (localStorage.getItem(seededKey)) {
+    expenses = [];
+    save();
     return;
   }
 
   const demo = buildDemoExpenses().expenses;
   expenses = await window.SpendData.insertMany(currentUser.id, demo);
+  try {
+    localStorage.setItem(seededKey, "1");
+  } catch (e) {}
+  save();
 }
 
 function showToast(message) {
@@ -657,6 +688,7 @@ async function commitAdd() {
       if (useCloud()) {
         const updated = await window.SpendData.update(editingId, payload);
         Object.assign(e, updated);
+        save();
       } else {
         Object.assign(e, payload);
         save();
@@ -668,6 +700,7 @@ async function commitAdd() {
       if (useCloud()) {
         const created = await window.SpendData.insert(currentUser.id, payload);
         expenses.push(created);
+        save();
       } else {
         expenses.push(Object.assign({ id: nid() }, payload));
         save();
@@ -687,7 +720,7 @@ async function deleteExpense(id) {
   try {
     if (useCloud()) await window.SpendData.remove(id);
     expenses = expenses.filter((x) => x.id !== id);
-    if (!useCloud()) save();
+    save();
     openRow = null;
     renderList();
     renderHome();
@@ -1009,6 +1042,7 @@ function showSetupScreen() {
 
 function showAuthScreen() {
   currentUser = null;
+  appReady = false;
   catEditor = null;
   categories = cloneDefaultCategories();
   const app = document.getElementById("app");
@@ -1018,6 +1052,8 @@ function showAuthScreen() {
   document.getElementById("screen-auth").classList.add("active");
   clearAuthMessage();
 }
+
+let appReady = false;
 
 async function enterApp(session) {
   currentUser = session ? session.user : null;
@@ -1032,9 +1068,11 @@ async function enterApp(session) {
     paintIcons(document);
     paintIcons(document.getElementById("monthSwitcher"));
     showScreen("home");
+    appReady = true;
   } catch (err) {
     showToast(err.message || "Could not load your expenses.");
     showAuthScreen();
+    appReady = false;
   } finally {
     setAppLoading(false);
   }
@@ -1117,6 +1155,18 @@ function wireAuthForm() {
   });
 }
 
+let appReady = false;
+let bootHandled = false;
+
+async function startApp(session) {
+  if (!session) {
+    appReady = false;
+    showAuthScreen();
+    return;
+  }
+  await enterApp(session);
+}
+
 async function bootstrap() {
   wireAuthForm();
   paintIcons(document);
@@ -1127,17 +1177,29 @@ async function bootstrap() {
     return;
   }
 
-  const session = await window.SpendAuth.getSession();
-  if (session) {
-    await enterApp(session);
-  } else {
-    showAuthScreen();
-  }
-
-  window.SpendAuth.onAuthStateChange((_event, session) => {
-    if (session) void enterApp(session);
-    else showAuthScreen();
+  /* Subscribe BEFORE getSession — INITIAL_SESSION fires when auth is truly ready */
+  window.SpendAuth.onAuthStateChange((event, session) => {
+    if (!session) {
+      appReady = false;
+      showAuthScreen();
+      return;
+    }
+    if (event === "TOKEN_REFRESHED") return;
+    if (event === "INITIAL_SESSION") {
+      if (!bootHandled) {
+        bootHandled = true;
+        void startApp(session);
+      }
+      return;
+    }
+    if (event === "SIGNED_IN") void startApp(session);
   });
+
+  const session = await window.SpendAuth.getSession();
+  if (!bootHandled) {
+    bootHandled = true;
+    await startApp(session);
+  }
 
   registerServiceWorker();
 }
