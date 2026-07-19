@@ -871,11 +871,16 @@ function renderAnalyse() {
 }
 
 function renderCategoryRow(c) {
-  return `<button type="button" class="catlist-row" data-edit-cat="${esc(c.id)}">
-    <span class="catlist-dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>
-    <span class="catlist-name">${esc(c.name)}</span>
-    <span class="icon catlist-chev" data-ico="chevronRight"></span>
-  </button>`;
+  return `<div class="catlist-row-wrap">
+    <button type="button" class="catlist-row" data-edit-cat="${esc(c.id)}">
+      <span class="catlist-dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>
+      <span class="catlist-name">${esc(c.name)}</span>
+      <span class="icon catlist-chev" data-ico="chevronRight"></span>
+    </button>
+    <button type="button" class="catlist-del" data-del-cat="${esc(c.id)}" aria-label="Delete ${esc(c.name)}">
+      <span class="icon" data-ico="trash"></span>
+    </button>
+  </div>`;
 }
 
 function renderCategoryList(fixed) {
@@ -896,7 +901,6 @@ function renderCatEditor() {
   const c = catEditor.isNew
     ? { name: "", color: PICK_COLORS[0], icon: PICK_ICONS[0], fixed: catEditor.fixed }
     : catById(catEditor.id);
-  const canDelete = !catEditor.isNew && !categoryInUse(catEditor.id);
   const colorBtns = PICK_COLORS.map(
     (col) =>
       `<button type="button" class="swatch ${c.color === col ? "on" : ""}" data-pick-color="${col}" style="background:${col}" aria-label="Colour ${col}"></button>`
@@ -925,7 +929,7 @@ function renderCatEditor() {
     </label>
     <div class="cateditor-actions">
       <button type="button" class="savebtn" id="catSaveBtn">${catEditor.isNew ? "Add category" : "Save changes"}</button>
-      ${canDelete ? '<button type="button" class="catdelbtn" id="catDeleteBtn">Delete</button>' : ""}
+      ${catEditor.isNew ? "" : '<button type="button" class="catdelbtn" id="catDeleteBtn">Delete category</button>'}
       <button type="button" class="catcancelbtn" id="catCancelBtn">Cancel</button>
     </div>
   </div>`;
@@ -994,6 +998,11 @@ function wireMorePanel() {
     const edit = e.target.closest("[data-edit-cat]");
     if (edit) {
       openCatEditor(edit.dataset.editCat);
+      return;
+    }
+    const del = e.target.closest("[data-del-cat]");
+    if (del) {
+      void deleteCategoryById(del.dataset.delCat);
     }
   });
 }
@@ -1031,26 +1040,35 @@ async function handleSaveCategory() {
   }
 }
 
-async function handleDeleteCategory() {
-  if (!catEditor || catEditor.isNew) return;
-  if (categoryInUse(catEditor.id)) {
+async function deleteCategoryById(id) {
+  if (!id) return false;
+  if (categoryInUse(id)) {
     showToast("Remove expenses from this category first.");
-    return;
+    return false;
   }
   if (categories.length <= 1) {
     showToast("Keep at least one category.");
-    return;
+    return false;
   }
 
   try {
-    categories = categories.filter((c) => c.id !== catEditor.id);
+    categories = categories.filter((c) => c.id !== id);
     await persistCategories();
-    catEditor = null;
+    if (catEditor?.id === id) catEditor = null;
     renderMore();
+    if (currentScreen === "home") renderHome();
+    if (currentScreen === "list") renderList();
     showToast("Category deleted.");
+    return true;
   } catch (err) {
     showToast(err.message || "Could not delete category.");
+    return false;
   }
+}
+
+async function handleDeleteCategory() {
+  if (!catEditor || catEditor.isNew) return;
+  await deleteCategoryById(catEditor.id);
 }
 
 function renderMore() {
