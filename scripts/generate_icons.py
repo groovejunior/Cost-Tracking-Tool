@@ -45,10 +45,16 @@ def draw_icon(size, maskable=False):
         font = ImageFont.load_default()
 
     text = "€"
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    draw.text((cx - tw / 2, cy - th / 2 - size * 0.02), text, fill=FG, font=font)
+    text_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    text_draw = ImageDraw.Draw(text_layer)
+    text_draw.text((cx, cy), text, fill=FG, font=font, anchor="mm")
+    bbox = text_layer.getbbox()
+    if bbox:
+        cropped = text_layer.crop(bbox)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        ox = int(size * 0.014)  # euro looks left-heavy in a circle
+        oy = int(size * -0.008)
+        img.paste(cropped, (cx - tw // 2 + ox, cy - th // 2 + oy), cropped)
 
     return img
 
