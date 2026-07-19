@@ -290,6 +290,32 @@ function load() {
   } catch (e) {}
 }
 
+function isOnline() {
+  return navigator.onLine !== false;
+}
+
+function isCloudId(id) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id));
+}
+
+function makeLocalId() {
+  return "local_" + nid();
+}
+
+function isPendingExpense(e) {
+  return !!e._pending || !isCloudId(e.id);
+}
+
+function expensePayload(item) {
+  return {
+    cat: item.cat,
+    amount: item.amount,
+    note: item.note || "",
+    date: item.date,
+    fxRate: item.fxRate ?? null,
+  };
+}
+
 function syncUidFromExpenses() {
   expenses.forEach((e) => {
     const n = parseInt(String(e.id).replace(/^e/, ""), 10);
@@ -298,19 +324,69 @@ function syncUidFromExpenses() {
 }
 
 async function fetchCloudExpenses(userId) {
-  let rows = await window.SpendData.fetchAll(userId);
-  if (!rows.length) {
-    await new Promise((r) => setTimeout(r, 300));
-    rows = await window.SpendData.fetchAll(userId);
+  let last = [];
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const session = await window.SpendAuth.getSession();
+    if (!session) break;
+    last = await window.SpendData.fetchAll(userId);
+    if (last.length > 0) return last;
+    await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
   }
-  return rows;
+  return last;
+}
+
+/** Upload local-only expenses that are not in the cloud yet. */
+async function syncPendingToCloud() {
+  if (!useCloud() || !isOnline()) return false;
+
+  const pending = expenses.filter(isPendingExpense);
+  if (!pending.length) return false;
+
+  let changed = false;
+  for (const item of pending) {
+    try {
+      const created = await window.SpendData.insert(currentUser.id, expensePayload(item));
+      const i = expenses.findIndex((e) => e.id === item.id);
+      if (i !== -1) expenses[i] = created;
+      else expenses.push(created);
+      changed = true;
+    } catch (e) {
+      console.warn("[Spend] Could not sync pending expense:", e.message);
+    }
+  }
+
+  if (changed) save();
+  return changed;
+}
+
+async function refreshFromCloud() {
+  if (!useCloud() || !isOnline()) return false;
+  try {
+    const rows = await window.SpendData.fetchAll(currentUser.id);
+    expenses = rows;
+    save();
+    return true;
+  } catch (e) {
+    console.warn("[Spend] Cloud refresh failed:", e.message);
+    return false;
+  }
+}
+
+async function maybeSeedDemo() {
+  const seededKey = storeKey + "_demo_seeded";
+  if (!useCloud() || !isOnline() || expenses.length || localStorage.getItem(seededKey)) return;
+  expenses = await window.SpendData.insertMany(currentUser.id, buildDemoExpenses().expenses);
+  try {
+    localStorage.setItem(seededKey, "1");
+  } catch (e) {}
+  save();
 }
 
 /**
  * Load expenses on sign-in:
- * 1. Cloud data (if any)
- * 2. Else local cache backup
- * 3. Else seed demo data once
+ * 1. Fetch cloud (when online)
+ * 2. Merge in local-only / offline expenses
+ * 3. Upload pending local items to cloud, then refresh
  */
 async function hydrateExpenses() {
   if (!useCloud()) {
@@ -323,44 +399,55 @@ async function hydrateExpenses() {
   }
 
   const local = readLocalExpenses();
+  let cloudRows = [];
 
-  try {
-    const rows = await fetchCloudExpenses(currentUser.id);
-    if (rows.length > 0) {
-      expenses = rows;
-      save();
-      return;
+  if (isOnline()) {
+    try {
+      cloudRows = await fetchCloudExpenses(currentUser.id);
+    } catch (e) {
+      console.warn("[Spend] Cloud fetch failed:", e.message);
     }
-  } catch (e) {
-    if (local.length > 0) {
-      expenses = local;
-      syncUidFromExpenses();
-      console.warn("[Spend] Using local expense cache:", e.message);
-      return;
-    }
-    throw e;
   }
 
-  /* Cloud returned empty — use phone backup (same data you just saved) */
-  if (local.length > 0) {
+  const cloudIds = new Set(cloudRows.map((e) => e.id));
+  const pendingFromLocal = local.filter((e) => isPendingExpense(e) && !cloudIds.has(e.id));
+
+  expenses = [...cloudRows];
+  for (const item of pendingFromLocal) {
+    if (!expenses.some((e) => e.id === item.id)) expenses.push(item);
+  }
+
+  if (!cloudRows.length && !pendingFromLocal.length && local.length > 0) {
     expenses = local;
-    syncUidFromExpenses();
-    return;
   }
 
-  const seededKey = storeKey + "_demo_seeded";
-  if (localStorage.getItem(seededKey)) {
-    expenses = [];
-    save();
-    return;
+  syncUidFromExpenses();
+
+  if (isOnline()) {
+    const synced = await syncPendingToCloud();
+    if (synced) await refreshFromCloud();
   }
 
-  const demo = buildDemoExpenses().expenses;
-  expenses = await window.SpendData.insertMany(currentUser.id, demo);
-  try {
-    localStorage.setItem(seededKey, "1");
-  } catch (e) {}
   save();
+  await maybeSeedDemo();
+}
+
+function wireOnlineSync() {
+  if (wireOnlineSync._done) return;
+  wireOnlineSync._done = true;
+
+  window.addEventListener("online", () => {
+    if (!useCloud()) return;
+    void (async () => {
+      const synced = await syncPendingToCloud();
+      if (synced) {
+        await refreshFromCloud();
+        showToast("Offline expenses synced to the cloud.");
+      }
+      if (currentScreen === "home") renderHome();
+      if (currentScreen === "list") renderList();
+    })();
+  });
 }
 
 function showToast(message) {
@@ -676,7 +763,7 @@ async function commitAdd() {
     date: stampFor(draft.day),
   };
 
-  await window.SpendRates.ensureForDate(payload.date);
+  await window.SpendRates.ensureForDate(payload.date).catch(() => {});
   payload.fxRate = window.SpendRates.snapshotFor(payload.date);
 
   const btn = document.getElementById("saveBtn");
@@ -686,10 +773,14 @@ async function commitAdd() {
     if (editingId) {
       const e = expenses.find((x) => x.id === editingId);
       if (!e) return;
-      if (useCloud()) {
+      if (useCloud() && isOnline() && isCloudId(editingId)) {
         const updated = await window.SpendData.update(editingId, payload);
         Object.assign(e, updated);
         save();
+      } else if (useCloud()) {
+        Object.assign(e, payload, { _pending: true });
+        save();
+        if (!isOnline()) showToast("Saved offline — will sync when you're back online.");
       } else {
         Object.assign(e, payload);
         save();
@@ -698,10 +789,14 @@ async function commitAdd() {
       showScreen("list");
       renderHome();
     } else {
-      if (useCloud()) {
+      if (useCloud() && isOnline()) {
         const created = await window.SpendData.insert(currentUser.id, payload);
         expenses.push(created);
         save();
+      } else if (useCloud()) {
+        expenses.push(Object.assign({ id: makeLocalId(), _pending: true }, payload));
+        save();
+        showToast("Saved offline — will sync when you're back online.");
       } else {
         expenses.push(Object.assign({ id: nid() }, payload));
         save();
@@ -719,7 +814,9 @@ async function commitAdd() {
 
 async function deleteExpense(id) {
   try {
-    if (useCloud()) await window.SpendData.remove(id);
+    if (useCloud() && isOnline() && isCloudId(id)) {
+      await window.SpendData.remove(id);
+    }
     expenses = expenses.filter((x) => x.id !== id);
     save();
     openRow = null;
@@ -1165,6 +1262,7 @@ function wireAuthForm() {
 
 async function bootstrap() {
   wireAuthForm();
+  wireOnlineSync();
   paintIcons(document);
 
   if (!window.SpendAuth || !window.SpendAuth.isEnabled()) {
@@ -1173,23 +1271,31 @@ async function bootstrap() {
     return;
   }
 
-  window.SpendAuth.onAuthStateChange((event, session) => {
-    if (event === "TOKEN_REFRESHED") return;
-    if (!session) {
-      appReady = false;
-      showAuthScreen();
-      return;
-    }
-    if (event === "SIGNED_IN") void enterApp(session);
-  });
+  await new Promise((resolve) => {
+    let booted = false;
+    const start = (session) => {
+      if (booted) return;
+      booted = true;
+      resolve();
+      if (session) void enterApp(session);
+      else showAuthScreen();
+    };
 
-  const session = await window.SpendAuth.getSession();
-  if (session) {
-    await new Promise((r) => setTimeout(r, 150));
-    await enterApp(session);
-  } else {
-    showAuthScreen();
-  }
+    const fallback = setTimeout(() => {
+      void window.SpendAuth.getSession().then(start);
+    }, 4000);
+
+    window.SpendAuth.onAuthStateChange((event, session) => {
+      if (event === "TOKEN_REFRESHED") return;
+      if (event === "INITIAL_SESSION") {
+        clearTimeout(fallback);
+        start(session);
+        return;
+      }
+      if (event === "SIGNED_IN") void enterApp(session);
+      if (!session && event === "SIGNED_OUT") showAuthScreen();
+    });
+  });
 
   registerServiceWorker();
 }

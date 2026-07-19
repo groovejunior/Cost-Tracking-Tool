@@ -10,6 +10,14 @@ const SpendAuth = {
     return !!window.spendSupabase;
   },
 
+  /** Validate the session with Supabase before reading protected data. */
+  async ensureReady() {
+    if (!this.isEnabled()) throw new Error("Auth is not available.");
+    const { data, error } = await window.spendSupabase.auth.getUser();
+    if (error || !data.user) throw new Error("Session expired. Please sign in again.");
+    return data.user;
+  },
+
   /** Read the saved login session from the browser (if any). */
   async getSession() {
     if (!this.isEnabled()) return null;
