@@ -462,7 +462,10 @@ function showToast(message) {
 }
 
 function setAppLoading(loading) {
-  document.getElementById("app").classList.toggle("loading", loading);
+  const app = document.getElementById("app");
+  const screen = document.getElementById("loadScreen");
+  if (screen) screen.classList.toggle("is-hidden", !loading);
+  if (app) app.setAttribute("aria-busy", loading ? "true" : "false");
 }
 
 /* ---------- helpers ---------- */
@@ -1261,6 +1264,7 @@ function wireAuthForm() {
 }
 
 async function bootstrap() {
+  setAppLoading(true);
   wireAuthForm();
   wireOnlineSync();
   paintIcons(document);

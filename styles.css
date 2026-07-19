@@ -229,4 +229,21 @@ input{font-family:inherit;}
 .toast{position:fixed;left:16px;right:16px;bottom:calc(80px + var(--safe-b));max-width:408px;margin:0 auto;
   background:var(--ink);color:#fff;padding:12px 14px;border-radius:12px;font-size:14px;text-align:center;
   z-index:50;box-shadow:0 6px 24px rgba(0,0,0,.15);}
-.app.loading{pointer-events:none;opacity:.55;}
+.load-screen{
+  position:absolute;inset:0;z-index:100;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:18px;background:var(--paper);
+  transition:opacity .22s ease,visibility .22s ease;
+}
+.load-screen.is-hidden{opacity:0;visibility:hidden;pointer-events:none;}
+.load-screen-brand{font-size:28px;font-weight:650;letter-spacing:-.03em;color:var(--ink);}
+.load-screen-spinner{
+  width:28px;height:28px;border-radius:50%;
+  border:2.5px solid var(--hair);border-top-color:var(--ink);
+  animation:load-spin .75s linear infinite;
+}
+.load-screen-text{margin:0;font-size:14px;color:var(--muted);}
+@keyframes load-spin{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){
+  .load-screen{transition:none;}
+  .load-screen-spinner{animation:none;border-top-color:var(--muted);}
+}
