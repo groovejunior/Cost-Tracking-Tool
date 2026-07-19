@@ -450,6 +450,68 @@ function wireOnlineSync() {
   });
 }
 
+let accountMenuOpen = false;
+
+function accountInitial(email) {
+  const ch = (email || "?").trim().charAt(0).toUpperCase();
+  return ch || "?";
+}
+
+function closeAccountMenu() {
+  accountMenuOpen = false;
+  const pop = document.getElementById("accountPopover");
+  const btn = document.getElementById("accountAvatar");
+  if (pop) pop.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function toggleAccountMenu() {
+  accountMenuOpen = !accountMenuOpen;
+  const pop = document.getElementById("accountPopover");
+  const btn = document.getElementById("accountAvatar");
+  if (!pop || !btn) return;
+  pop.hidden = !accountMenuOpen;
+  btn.setAttribute("aria-expanded", accountMenuOpen ? "true" : "false");
+}
+
+function updateAccountMenu() {
+  const menu = document.getElementById("accountMenu");
+  const app = document.getElementById("app");
+  if (!menu || !app) return;
+
+  const signedIn = !!(window.SpendAuth?.isEnabled() && currentUser);
+  menu.hidden = !signedIn;
+  app.classList.toggle("signed-in", signedIn);
+
+  if (!signedIn) {
+    closeAccountMenu();
+    return;
+  }
+
+  const email = currentUser.email || "Account";
+  document.getElementById("accountInitial").textContent = accountInitial(email);
+  document.getElementById("accountPopoverEmail").textContent = email;
+}
+
+function wireAccountMenu() {
+  const menu = document.getElementById("accountMenu");
+  if (!menu || wireAccountMenu._done) return;
+  wireAccountMenu._done = true;
+
+  document.getElementById("accountAvatar")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleAccountMenu();
+  });
+  document.getElementById("accountSignOut")?.addEventListener("click", () => {
+    closeAccountMenu();
+    void handleLogout();
+  });
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => {
+    if (accountMenuOpen) closeAccountMenu();
+  });
+}
+
 function showToast(message) {
   const el = document.getElementById("toast");
   if (!el || !message) return;
@@ -835,6 +897,7 @@ function setNav(name) {
   document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.nav === name));
 }
 function showScreen(name) {
+  closeAccountMenu();
   const app = document.getElementById("app");
   if (name === "add") {
     app.classList.add("modal");
@@ -1057,10 +1120,6 @@ function renderMore() {
     el.className = "account-panel";
     el.innerHTML = `
       <div class="account-card">
-        <div class="lbl">Signed in as</div>
-        <div class="email">${esc(currentUser.email || "Account")}</div>
-      </div>
-      <div class="account-card">
         <div class="lbl">Variable spending limit</div>
         <p class="settings-hint">Monthly cap for flexible costs. Fixed categories below don't count toward this.</p>
         <div class="budget-field">
@@ -1078,7 +1137,6 @@ function renderMore() {
         ${renderCategoryList(true)}
         ${renderCatEditor()}
       </div>
-      <button type="button" class="logoutbtn" id="logoutBtn">Sign out</button>
     `;
     document.getElementById("saveBudgetBtn").addEventListener("click", () => {
       void handleSaveBudget();
@@ -1092,7 +1150,6 @@ function renderMore() {
         void handleSaveBudget();
       }
     });
-    document.getElementById("logoutBtn").addEventListener("click", handleLogout);
     wireMorePanel();
     wireCatEditor();
     paintIcons(el);
@@ -1135,6 +1192,7 @@ async function handleSaveBudget() {
 function showSetupScreen() {
   setAppLoading(false);
   currentUser = null;
+  updateAccountMenu();
   const app = document.getElementById("app");
   app.classList.add("auth-mode");
   app.classList.remove("modal");
@@ -1145,6 +1203,7 @@ function showSetupScreen() {
 function showAuthScreen() {
   setAppLoading(false);
   currentUser = null;
+  updateAccountMenu();
   appReady = false;
   catEditor = null;
   categories = cloneDefaultCategories();
@@ -1169,6 +1228,7 @@ async function enterApp(session) {
     paintIcons(document.getElementById("monthSwitcher"));
     showScreen("home");
     appReady = true;
+    updateAccountMenu();
     void loadUserSettings(currentUser?.id)
       .then(() => loadCategories(currentUser?.id))
       .then(() => window.SpendRates.ensureForExpenses(expenses))
@@ -1266,6 +1326,7 @@ function wireAuthForm() {
 async function bootstrap() {
   setAppLoading(true);
   wireAuthForm();
+  wireAccountMenu();
   wireOnlineSync();
   paintIcons(document);
 

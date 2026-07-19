@@ -18,6 +18,7 @@ input{font-family:inherit;}
   padding-top:env(safe-area-inset-top,0px);}
 .app.modal .nav{display:none;}
 .app.auth-mode .nav{display:none;}
+.app.signed-in .topbar{padding-right:50px;}
 
 /* screens */
 .screen{display:none;flex:1;flex-direction:column;min-height:0;}
@@ -211,9 +212,34 @@ input{font-family:inherit;}
 .catdelbtn{width:100%;background:var(--card);color:var(--over);border:1px solid var(--hair);border-radius:14px;
   padding:13px;font-size:15px;font-weight:600;}
 .catcancelbtn{width:100%;background:none;border:none;color:var(--muted);font-size:14px;font-weight:550;padding:8px;}
-.logoutbtn{width:100%;background:var(--card);color:var(--over);border:1px solid var(--hair);border-radius:14px;
-  padding:15px;font-size:16px;font-weight:600;}
-.logoutbtn:active{background:var(--hair);}
+
+/* account menu (fixed top-right) */
+.account-menu{
+  position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:16px;z-index:45;
+}
+.app.auth-mode .account-menu,.app.modal .account-menu{display:none;}
+.account-avatar{
+  width:34px;height:34px;border-radius:50%;border:1px solid var(--hair-strong);
+  background:var(--card);color:var(--ink);font-size:14px;font-weight:650;
+  display:grid;place-items:center;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.06);
+}
+.account-avatar:active{background:var(--hair);}
+.account-popover{
+  position:absolute;top:calc(100% + 8px);right:0;min-width:232px;
+  background:var(--card);border:1px solid var(--hair);border-radius:14px;
+  padding:14px 16px;box-shadow:0 10px 32px rgba(0,0,0,.12);
+}
+.account-popover-lbl{
+  font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;
+}
+.account-popover-email{
+  font-size:14px;font-weight:550;margin:6px 0 12px;word-break:break-all;color:var(--ink);line-height:1.35;
+}
+.account-signout{
+  width:100%;background:none;border:none;border-top:1px solid var(--hair);
+  color:var(--over);font-size:14px;font-weight:600;padding:12px 0 0;text-align:left;
+}
+.account-signout:active{opacity:.75;}
 
 /* stub screen */
 .stub{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px;gap:10px;color:var(--muted);}

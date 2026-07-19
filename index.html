@@ -22,6 +22,18 @@
     <p class="load-screen-text">Loading your expenses…</p>
   </div>
 
+  <div class="account-menu" id="accountMenu" hidden>
+    <button type="button" class="account-avatar" id="accountAvatar"
+            aria-label="Account menu" aria-expanded="false" aria-haspopup="true">
+      <span id="accountInitial">?</span>
+    </button>
+    <div class="account-popover" id="accountPopover" hidden>
+      <div class="account-popover-lbl">Signed in as</div>
+      <div class="account-popover-email" id="accountPopoverEmail"></div>
+      <button type="button" class="account-signout" id="accountSignOut">Sign out</button>
+    </div>
+  </div>
+
   <!-- SETUP (shown when Supabase keys are missing) -->
   <section class="screen" id="screen-setup">
     <div class="auth">
@@ -80,7 +92,6 @@
   <section class="screen" id="screen-list">
     <div class="topbar">
       <h1>Expenses</h1>
-      <button class="iconbtn" aria-label="Filter" data-ico="filter"></button>
     </div>
     <div class="chips" id="filterChips"></div>
     <div class="scroll" id="listScroll"></div>
