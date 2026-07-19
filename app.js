@@ -60,49 +60,8 @@ let catEditor = null; /* { id, fixed, isNew } when editing in More */
 
 let uid = 1;
 const nid = () => "e" + uid++;
-function d(day, h) {
-  const n = new Date();
-  const dd = Math.max(1, Math.min(day, n.getDate()));
-  return new Date(n.getFullYear(), n.getMonth(), dd, h || 12, 0).toISOString();
-}
 
-const _varSeed = [
-  ["eating", 4.8, "Coffee"],
-  ["household", 8.4, "Detergent"],
-  ["nightlife", 16.0, "Club"],
-  ["trips", 42.0, "Weekend trip"],
-  ["transport", 7.8, "Train"],
-  ["groceries", 31.2, "Lidl run"],
-  ["eating", 14.9, "Burger"],
-  ["nightlife", 22.0, "Bar"],
-  ["transport", 9.0, "Metro card"],
-  ["groceries", 23.8, "Albert Heijn"],
-  ["eating", 12.5, "Ramen"],
-];
-
-/** Build the demo month of sample expenses (shown when a user has no saved data yet). */
-function buildDemoExpenses() {
-  let counter = 1;
-  const nextId = () => "e" + counter++;
-  const span = Math.max(1, Math.min(new Date().getDate(), 24));
-  const list = [
-    { id: nextId(), cat: "rent", amount: 750, note: "", date: d(1, 9) },
-    { id: nextId(), cat: "subs", amount: 18, note: "Spotify", date: d(2, 8) },
-    { id: nextId(), cat: "subs", amount: 21, note: "Phone plan", date: d(3, 8) },
-  ];
-  _varSeed.forEach((s, i) => {
-    const day = 1 + Math.round((span - 1) * (i / (_varSeed.length - 1)));
-    const amount = Math.round(s[1] * window.SpendRates.DEFAULT_RATE * 100) / 100;
-    list.push({ id: nextId(), cat: s[0], amount, note: s[2], date: d(day, 9 + (i % 12)) });
-  });
-  return { expenses: list, uid: counter };
-}
-
-let expenses = (() => {
-  const demo = buildDemoExpenses();
-  uid = demo.uid;
-  return demo.expenses;
-})();
+let expenses = [];
 
 /* persistence */
 let storeKey = "spend_v1";
@@ -382,27 +341,9 @@ async function refreshFromCloud() {
   }
 }
 
-async function maybeSeedDemo() {
-  const seededKey = storeKey + "_demo_seeded";
-  if (!useCloud() || !isOnline() || expenses.length || localStorage.getItem(seededKey)) return;
-  expenses = await window.SpendData.insertMany(currentUser.id, buildDemoExpenses().expenses);
-  try {
-    localStorage.setItem(seededKey, "1");
-  } catch (e) {}
-  save();
-}
-
-/**
- * Load expenses on sign-in:
- * 1. Fetch cloud (when online)
- * 2. Merge in local-only / offline expenses
- * 3. Upload pending local items to cloud, then refresh
- */
 async function hydrateExpenses() {
   if (!useCloud()) {
-    const demo = buildDemoExpenses();
-    uid = demo.uid;
-    expenses = demo.expenses;
+    expenses = [];
     load();
     syncUidFromExpenses();
     return;
@@ -429,7 +370,6 @@ async function hydrateExpenses() {
   }
 
   save();
-  await maybeSeedDemo();
 }
 
 function wireOnlineSync() {
