@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-  <meta name="theme-color" content="#F6F5F2">
+  <meta name="theme-color" content="#EEF0F2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Spend">
@@ -17,9 +17,12 @@
 <div class="app" id="app" aria-busy="true">
 
   <div class="load-screen" id="loadScreen" role="status" aria-live="polite" aria-label="Loading Spend">
-    <div class="load-screen-brand">Spend</div>
+    <div class="brand-lockup">
+      <img class="brand-mark" src="./assets/brand-mark.svg" width="80" height="125" alt="" aria-hidden="true">
+      <div class="brand-wordmark">Spend</div>
+      <p class="brand-tagline">Track what matters</p>
+    </div>
     <div class="load-screen-spinner" aria-hidden="true"></div>
-    <p class="load-screen-text">Loading your expenses…</p>
   </div>
 
   <div class="account-menu" id="accountMenu" hidden>
@@ -38,43 +41,69 @@
 
   <!-- SETUP (shown when Supabase keys are missing) -->
   <section class="screen" id="screen-setup">
-    <div class="auth">
-      <div class="auth-brand">
-        <h1>Almost there</h1>
-        <p>Connect this app to your Supabase project</p>
+    <div class="auth auth--hybrid">
+      <div class="auth-brand-zone">
+        <div class="brand-lockup">
+          <img class="brand-mark" src="./assets/brand-mark.svg" width="80" height="125" alt="" aria-hidden="true">
+          <div class="brand-wordmark">Spend</div>
+          <p class="brand-tagline">Almost there — connect Supabase</p>
+        </div>
       </div>
-      <div class="setup-steps">
-        <p><strong>1.</strong> Supabase Dashboard → <strong>Project Settings</strong> → <strong>API</strong></p>
-        <p><strong>2.</strong> Copy <strong>Project URL</strong> and <strong>anon public</strong> key</p>
-        <p><strong>3.</strong> Paste them into <code>supabase/config.js</code> and save</p>
-        <p><strong>4.</strong> Hard-refresh this page (<code>Cmd+Shift+R</code>)</p>
+      <div class="auth-dock">
+        <div class="auth-dock-inner">
+          <div class="setup-steps">
+            <p><strong>1.</strong> Supabase Dashboard → <strong>Project Settings</strong> → <strong>API</strong></p>
+            <p><strong>2.</strong> Copy <strong>Project URL</strong> and <strong>anon public</strong> key</p>
+            <p><strong>3.</strong> Paste them into <code>supabase/config.js</code> and save</p>
+            <p><strong>4.</strong> Hard-refresh this page (<code>Cmd+Shift+R</code>)</p>
+          </div>
+          <p class="auth-msg error">Supabase is not configured yet — that’s why you don’t see the login screen.</p>
+        </div>
       </div>
-      <p class="auth-msg error" style="margin-top:16px">Supabase is not configured yet — that’s why you don’t see the login screen.</p>
     </div>
   </section>
 
   <!-- AUTH (login / sign up) -->
   <section class="screen" id="screen-auth">
-    <div class="auth">
-      <div class="auth-brand">
-        <h1>Spend</h1>
-        <p>Your personal expense tracker</p>
+    <div class="auth auth--hybrid">
+      <div class="auth-brand-zone">
+        <div class="brand-lockup">
+          <img class="brand-mark" src="./assets/brand-mark.svg" width="80" height="125" alt="" aria-hidden="true">
+          <div class="brand-wordmark">Spend</div>
+          <p class="brand-tagline">Track what matters</p>
+        </div>
       </div>
-      <form id="authForm" class="auth-form" novalidate>
-        <div class="field">
-          <div class="fl">Email</div>
-          <input class="noteinput" type="email" id="authEmail" autocomplete="email" required
-                 placeholder="you@example.com">
+      <div class="auth-dock">
+        <div class="auth-dock-inner">
+          <form id="authForm" class="auth-form" novalidate>
+            <div class="field">
+              <label class="fl" for="authEmail">Email</label>
+              <div class="auth-input">
+                <span class="auth-input-ico" data-ico="mail" aria-hidden="true"></span>
+                <input class="noteinput" type="email" id="authEmail" autocomplete="email" required
+                       placeholder="youremail@example.com">
+              </div>
+            </div>
+            <div class="field">
+              <label class="fl" for="authPassword">Password</label>
+              <div class="auth-input">
+                <span class="auth-input-ico" data-ico="lock" aria-hidden="true"></span>
+                <input class="noteinput" type="password" id="authPassword" autocomplete="current-password"
+                       minlength="6" required placeholder="Enter your password">
+                <button type="button" class="auth-eye" id="authPasswordToggle" aria-label="Show password" aria-pressed="false">
+                  <span class="icon" data-ico="eye" aria-hidden="true"></span>
+                </button>
+              </div>
+            </div>
+            <p class="auth-msg" id="authMsg" hidden></p>
+            <button type="submit" class="savebtn" id="authSubmit">Sign in</button>
+          </form>
+          <button type="button" class="auth-toggle" id="authToggle">
+            <span class="auth-toggle-lead">Need an account?</span>
+            <span class="auth-toggle-action">Sign up</span>
+          </button>
         </div>
-        <div class="field">
-          <div class="fl">Password</div>
-          <input class="noteinput" type="password" id="authPassword" autocomplete="current-password"
-                 minlength="6" required placeholder="At least 6 characters">
-        </div>
-        <p class="auth-msg" id="authMsg" hidden></p>
-        <button type="submit" class="savebtn" id="authSubmit">Sign in</button>
-      </form>
-      <button type="button" class="auth-toggle" id="authToggle">Need an account? Sign up</button>
+      </div>
     </div>
   </section>
 

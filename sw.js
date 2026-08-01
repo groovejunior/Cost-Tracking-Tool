@@ -1,4 +1,4 @@
-const CACHE_NAME = "spend-v36";
+const CACHE_NAME = "spend-v52";
 const ASSETS = [
   "./",
   "./index.html",
@@ -16,6 +16,9 @@ const ASSETS = [
   "./assets/icon-192.png",
   "./assets/icon-512.png",
   "./assets/icon-maskable.png",
+  "./assets/brand-mark.svg",
+  "./assets/brand-mark.png",
+  "./assets/auth-australia.jpg",
 ];
 
 self.addEventListener("install", (event) => {

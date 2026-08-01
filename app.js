@@ -22,6 +22,9 @@ const ICONS = {
   settings: P('<path d="M9 4h6l.6 2.5 2.2 1.3 2.4-.8 3 5.2-1.8 1.7v2.6l1.8 1.7-3 5.2-2.4-.8-2.2 1.3L15 22H9l-.6-2.6-2.2-1.3-2.4.8-3-5.2 1.8-1.7v-2.6L.8 8.5l3-5.2 2.4.8L8.4 2.8" transform="scale(.8) translate(3 3)"/><circle cx="12" cy="12" r="3"/>'),
   filter: P('<path d="M3 5h18l-7 8v5l-4 2v-7L3 5Z"/>'),
   search: P('<circle cx="11" cy="11" r="6.5"/><path d="M16.5 16.5 21 21"/>'),
+  mail: P('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>'),
+  eye: P('<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>'),
+  eyeOff: P('<path d="M3 4l18 16"/><path d="M10.6 10.7a2.5 2.5 0 0 0 3.5 3.5"/><path d="M7 8.2C4.4 9.6 2.8 12 2.8 12s3.5 6 9.2 6c1.5 0 2.8-.3 4-.8M10.2 6.2A10.5 10.5 0 0 1 12 6c6.5 0 10 6 10 6a16 16 0 0 1-3.3 3.6"/>'),
   lock: P('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
   chevron: P('<path d="M6 9l6 6 6-6"/>'),
   chevronLeft: P('<path d="M15 6l-6 6 6 6"/>'),
@@ -1326,7 +1329,7 @@ function svgCategoryDonut(rows, total) {
 
 function renderSplitChartRows(variable, fixed, oneOff, total) {
   const rows = [
-    { name: "Variable", color: "#1D9E75", icon: "chart", sum: variable },
+    { name: "Variable", color: "#0F766E", icon: "chart", sum: variable },
     { name: "Fixed", color: "#5B51C6", icon: "lock", sum: fixed },
     { name: "Unique", color: "#9333EA", icon: "gift", sum: oneOff },
   ].filter((r) => r.sum > 0);
@@ -2022,11 +2025,24 @@ async function enterApp(session) {
   }
 }
 
+function setAuthToggleLabel(mode) {
+  const btn = document.getElementById("authToggle");
+  if (!btn) return;
+  if (mode === "signin") {
+    btn.innerHTML =
+      '<span class="auth-toggle-lead">Need an account?</span>' +
+      '<span class="auth-toggle-action">Sign up</span>';
+  } else {
+    btn.innerHTML =
+      '<span class="auth-toggle-lead">Already have an account?</span>' +
+      '<span class="auth-toggle-action">Sign in</span>';
+  }
+}
+
 function setAuthMode(mode) {
   authMode = mode;
   document.getElementById("authSubmit").textContent = mode === "signin" ? "Sign in" : "Create account";
-  document.getElementById("authToggle").textContent =
-    mode === "signin" ? "Need an account? Sign up" : "Already have an account? Sign in";
+  setAuthToggleLabel(mode);
   document.getElementById("authPassword").autocomplete = mode === "signin" ? "current-password" : "new-password";
   clearAuthMessage();
 }
@@ -2097,6 +2113,22 @@ function wireAuthForm() {
   document.getElementById("authToggle").addEventListener("click", () => {
     setAuthMode(authMode === "signin" ? "signup" : "signin");
   });
+  const eye = document.getElementById("authPasswordToggle");
+  if (eye) {
+    eye.addEventListener("click", () => {
+      const input = document.getElementById("authPassword");
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      eye.setAttribute("aria-pressed", show ? "true" : "false");
+      eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      const ico = eye.querySelector("[data-ico]");
+      if (ico) {
+        delete ico.dataset.done;
+        ico.setAttribute("data-ico", show ? "eyeOff" : "eye");
+        paintIcons(eye);
+      }
+    });
+  }
 }
 
 async function bootstrap() {
