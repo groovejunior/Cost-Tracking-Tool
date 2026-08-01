@@ -21,6 +21,7 @@ const ICONS = {
   calendar: P('<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/>'),
   settings: P('<path d="M9 4h6l.6 2.5 2.2 1.3 2.4-.8 3 5.2-1.8 1.7v2.6l1.8 1.7-3 5.2-2.4-.8-2.2 1.3L15 22H9l-.6-2.6-2.2-1.3-2.4.8-3-5.2 1.8-1.7v-2.6L.8 8.5l3-5.2 2.4.8L8.4 2.8" transform="scale(.8) translate(3 3)"/><circle cx="12" cy="12" r="3"/>'),
   filter: P('<path d="M3 5h18l-7 8v5l-4 2v-7L3 5Z"/>'),
+  search: P('<circle cx="11" cy="11" r="6.5"/><path d="M16.5 16.5 21 21"/>'),
   lock: P('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
   chevron: P('<path d="M6 9l6 6 6-6"/>'),
   chevronLeft: P('<path d="M15 6l-6 6 6 6"/>'),
@@ -494,11 +495,6 @@ function moneyStack(aud, rate) {
 function moneyStackExpense(e) {
   return moneyStack(e.amount, expenseRate(e));
 }
-function thisMonth(e) {
-  const d = new Date(e.date);
-  const n = new Date();
-  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth();
-}
 function expenseInViewMonth(e) {
   const d = new Date(e.date);
   return d.getFullYear() === viewMonth.getFullYear() && d.getMonth() === viewMonth.getMonth();
@@ -507,16 +503,45 @@ function isCurrentViewMonth() {
   const n = new Date();
   return viewMonth.getFullYear() === n.getFullYear() && viewMonth.getMonth() === n.getMonth();
 }
+function viewMonthLabel() {
+  return viewMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+function matchesListQuery(e, q) {
+  if (!q) return true;
+  const c = catById(e.cat);
+  const hay = `${e.note || ""} ${c.name}`.toLowerCase();
+  return hay.includes(q);
+}
+function syncMonthSwitcher(which) {
+  const isList = which === "list";
+  const label = document.getElementById(isList ? "listMonthLabel" : "monthLabel");
+  const prev = document.getElementById(isList ? "listMonthPrev" : "monthPrev");
+  const next = document.getElementById(isList ? "listMonthNext" : "monthNext");
+  if (label) label.textContent = viewMonthLabel();
+  if (prev) prev.disabled = false;
+  if (next) next.disabled = isCurrentViewMonth();
+}
+function refreshViewMonthScreens() {
+  if (currentScreen === "home") renderHome();
+  else if (currentScreen === "list") renderList();
+  else {
+    syncMonthSwitcher("home");
+    syncMonthSwitcher("list");
+  }
+  void window.SpendRates.ensureForDate(viewMonth).then((updated) => {
+    if (!updated) return;
+    if (currentScreen === "home") renderHome();
+    if (currentScreen === "list") renderList();
+  });
+}
 function shiftViewMonth(delta) {
   const next = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + delta, 1);
   const now = new Date();
   const current = new Date(now.getFullYear(), now.getMonth(), 1);
   if (next > current) return;
   viewMonth = next;
-  renderHome();
-  void window.SpendRates.ensureForDate(viewMonth).then((updated) => {
-    if (updated) renderHome();
-  });
+  openRow = null;
+  refreshViewMonthScreens();
 }
 function startDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
@@ -550,6 +575,7 @@ let currentScreen = "home";
 let currentUser = null;
 let authMode = "signin";
 let filter = "all";
+let listQuery = "";
 let openRow = null;
 let editingId = null;
 let appReady = false;
@@ -560,12 +586,7 @@ const draft = { amount: 0, cat: null, note: "", day: todayStr() };
 
 /* ---------- HOME ---------- */
 function renderHome() {
-  document.getElementById("monthLabel").textContent = viewMonth.toLocaleDateString("en-GB", {
-    month: "long",
-    year: "numeric",
-  });
-  document.getElementById("monthPrev").disabled = false;
-  document.getElementById("monthNext").disabled = isCurrentViewMonth();
+  syncMonthSwitcher("home");
 
   const month = expenses.filter(expenseInViewMonth);
   const total = month.reduce((s, e) => s + e.amount, 0);
@@ -637,7 +658,11 @@ function renderHome() {
     </div>
     <button class="addbtn" data-nav="add"><span class="icon" data-ico="plus"></span>Add expense</button>
     <div class="sectlabel">Where it's going</div>
-    <div class="catgrid">${catCards || ""}</div>
+    ${
+      catCards
+        ? `<div class="catgrid">${catCards}</div>`
+        : `<div class="empty empty--section">No spending to break down yet.</div>`
+    }
     <div class="sectlabel">Recent <a data-nav="list" aria-label="See all">See all <span class="icon" style="width:16px;height:16px" data-ico="chevron"></span></a></div>
     <div class="rows">${recentRows}</div>
   `;
@@ -647,21 +672,38 @@ function renderHome() {
 
 /* ---------- LIST ---------- */
 function renderFilters() {
-  const used = categories.filter((c) => expenses.some((e) => e.cat === c.id));
+  const monthItems = expenses.filter(expenseInViewMonth);
+  const used = categories.filter((c) => monthItems.some((e) => e.cat === c.id));
+  if (filter !== "all" && !used.some((c) => c.id === filter)) filter = "all";
   const chips = [{ id: "all", name: "All" }, ...used];
   document.getElementById("filterChips").innerHTML = chips
     .map((c) => `<button class="chip ${filter === c.id ? "active" : ""}" data-filter="${c.id}">${c.name}</button>`)
     .join("");
 }
 function renderList() {
+  syncMonthSwitcher("list");
+  paintIcons(document.getElementById("listMonthSwitcher"));
+  paintIcons(document.getElementById("listSearch")?.parentElement);
+
+  const searchEl = document.getElementById("listSearch");
+  if (searchEl && searchEl.value !== listQuery) searchEl.value = listQuery;
+
   renderFilters();
-  let items = expenses.filter(thisMonth);
+  const q = listQuery.trim().toLowerCase();
+  const monthItems = expenses.filter(expenseInViewMonth);
+  let items = monthItems;
   if (filter !== "all") items = items.filter((e) => e.cat === filter);
+  if (q) items = items.filter((e) => matchesListQuery(e, q));
   items.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const el = document.getElementById("listScroll");
   if (!items.length) {
-    el.innerHTML = `<div class="empty">Nothing here yet. Tap Add to log an expense.</div>`;
+    const monthName = viewMonth.toLocaleDateString("en-GB", { month: "long" });
+    let emptyMsg = `Nothing in ${monthName} yet. Tap Add to log an expense.`;
+    if (monthItems.length && (q || filter !== "all")) {
+      emptyMsg = q ? "No expenses match your search." : "No expenses in this category.";
+    }
+    el.innerHTML = `<div class="empty">${emptyMsg}</div>`;
     return;
   }
 
@@ -1373,6 +1415,13 @@ document.getElementById("app").addEventListener("click", (e) => {
 });
 document.getElementById("monthPrev").addEventListener("click", () => shiftViewMonth(-1));
 document.getElementById("monthNext").addEventListener("click", () => shiftViewMonth(1));
+document.getElementById("listMonthPrev").addEventListener("click", () => shiftViewMonth(-1));
+document.getElementById("listMonthNext").addEventListener("click", () => shiftViewMonth(1));
+document.getElementById("listSearch").addEventListener("input", (e) => {
+  listQuery = e.target.value;
+  openRow = null;
+  renderList();
+});
 document.getElementById("addBack").addEventListener("click", () => {
   const back = editingId ? "list" : "home";
   editingId = null;

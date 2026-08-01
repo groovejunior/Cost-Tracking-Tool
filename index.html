@@ -91,7 +91,17 @@
   <!-- LIST -->
   <section class="screen" id="screen-list">
     <div class="topbar">
-      <h1>Expenses</h1>
+      <div class="month-switch tabular" id="listMonthSwitcher">
+        <button class="iconbtn" type="button" id="listMonthPrev" aria-label="Previous month" data-ico="chevronLeft"></button>
+        <div class="month" id="listMonthLabel">This month</div>
+        <button class="iconbtn" type="button" id="listMonthNext" aria-label="Next month" data-ico="chevronRight"></button>
+      </div>
+    </div>
+    <div class="list-search-wrap">
+      <span class="icon list-search-ico" data-ico="search" aria-hidden="true"></span>
+      <input class="list-search" type="search" id="listSearch"
+             placeholder="Search notes or categories" autocomplete="off"
+             aria-label="Search expenses in this month">
     </div>
     <div class="chips" id="filterChips"></div>
     <div class="scroll" id="listScroll"></div>
