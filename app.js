@@ -373,22 +373,111 @@ async function hydrateExpenses() {
   save();
 }
 
+function pendingCount() {
+  if (!useCloud()) return 0;
+  return expenses.filter(isPendingExpense).length;
+}
+
+function refreshSyncStatus() {
+  const el = document.getElementById("syncStatus");
+  if (!el) return;
+
+  if (!useCloud() || !currentUser) {
+    el.hidden = true;
+    return;
+  }
+
+  const n = pendingCount();
+  const offline = !isOnline();
+
+  if (!n && !offline) {
+    el.hidden = true;
+    el.className = "sync-status";
+    el.textContent = "";
+    return;
+  }
+
+  el.hidden = false;
+  if (n && offline) {
+    el.className = "sync-status warn";
+    el.textContent =
+      n === 1
+        ? "1 unsynced expense · you're offline"
+        : n + " unsynced expenses · you're offline";
+  } else if (n) {
+    el.className = "sync-status";
+    el.textContent =
+      n === 1
+        ? "1 unsynced expense · will sync when possible"
+        : n + " unsynced expenses · will sync when possible";
+  } else {
+    el.className = "sync-status";
+    el.textContent = "You're offline — new saves stay on this device";
+  }
+}
+
+function offlineSaveToast() {
+  const n = pendingCount();
+  const waiting =
+    n <= 1 ? "It will sync when you're back online." : n + " expenses waiting to sync.";
+  showToast("Saved on this device. " + waiting);
+  refreshSyncStatus();
+}
+
 function wireOnlineSync() {
   if (wireOnlineSync._done) return;
   wireOnlineSync._done = true;
 
   window.addEventListener("online", () => {
+    refreshSyncStatus();
     if (!useCloud()) return;
     void (async () => {
       const synced = await syncPendingToCloud();
       if (synced) {
         await refreshFromCloud();
-        showToast("Offline expenses synced to the cloud.");
+        showToast("All caught up — offline expenses synced.");
+        if (currentScreen === "home") renderHome();
+        if (currentScreen === "list") renderList();
       }
-      if (currentScreen === "home") renderHome();
-      if (currentScreen === "list") renderList();
+      refreshSyncStatus();
     })();
   });
+
+  window.addEventListener("offline", () => {
+    refreshSyncStatus();
+    if (useCloud()) showToast("You're offline. Changes will sync later.");
+  });
+}
+
+let confirmResolver = null;
+
+function askConfirm({ title, body, confirmLabel = "Delete" }) {
+  const dialog = document.getElementById("confirmDialog");
+  const titleEl = document.getElementById("confirmTitle");
+  const bodyEl = document.getElementById("confirmBody");
+  const okBtn = document.getElementById("confirmOk");
+  if (!dialog || !titleEl || !bodyEl || !okBtn) return Promise.resolve(false);
+
+  titleEl.textContent = title;
+  bodyEl.textContent = body;
+  okBtn.textContent = confirmLabel;
+
+  dialog.hidden = false;
+  okBtn.focus();
+
+  return new Promise((resolve) => {
+    confirmResolver = resolve;
+  });
+}
+
+function closeConfirm(result) {
+  const dialog = document.getElementById("confirmDialog");
+  if (dialog) dialog.hidden = true;
+  if (confirmResolver) {
+    const resolve = confirmResolver;
+    confirmResolver = null;
+    resolve(!!result);
+  }
 }
 
 let accountMenuOpen = false;
@@ -716,6 +805,10 @@ function renderList() {
       html += `<div class="daygroup">${dl}</div>`;
       lastDay = dl;
     }
+    const pending =
+      useCloud() && isPendingExpense(e)
+        ? ` <span class="row-pending">· Unsynced</span>`
+        : "";
     html += `
       <div class="rowwrap list-row ${openRow === e.id ? "open" : ""}" data-row="${e.id}">
         <div class="actions">
@@ -724,7 +817,7 @@ function renderList() {
         </div>
         <div class="row">
           <div class="badge" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
-          <div class="rmid"><div class="t">${e.note || c.name}</div><div class="s">${c.name}</div></div>
+          <div class="rmid"><div class="t">${e.note || c.name}</div><div class="s">${c.name}${pending}</div></div>
           <div class="rright">${moneyStackExpense(e)}</div>
         </div>
       </div>`;
@@ -827,7 +920,7 @@ async function commitAdd() {
       } else if (useCloud()) {
         Object.assign(e, payload, { _pending: true });
         save();
-        if (!isOnline()) showToast("Saved offline — will sync when you're back online.");
+        offlineSaveToast();
       } else {
         Object.assign(e, payload);
         save();
@@ -835,6 +928,7 @@ async function commitAdd() {
       editingId = null;
       showScreen("list");
       renderHome();
+      refreshSyncStatus();
     } else {
       if (useCloud() && isOnline()) {
         const created = await window.SpendData.insert(currentUser.id, payload);
@@ -843,7 +937,7 @@ async function commitAdd() {
       } else if (useCloud()) {
         expenses.push(Object.assign({ id: makeLocalId(), _pending: true }, payload));
         save();
-        showToast("Saved offline — will sync when you're back online.");
+        offlineSaveToast();
       } else {
         expenses.push(Object.assign({ id: nid() }, payload));
         save();
@@ -851,12 +945,40 @@ async function commitAdd() {
       showScreen("home");
       renderHome();
       renderList();
+      refreshSyncStatus();
     }
   } catch (err) {
     showToast(err.message || "Could not save expense. Check your connection.");
   } finally {
     refreshSave();
   }
+}
+
+function deleteConfirmCopy(e) {
+  const c = catById(e.cat);
+  const label = e.note || c.name;
+  const amount = money(e.amount);
+  return {
+    title: "Delete this expense?",
+    body: `${label} · ${amount}. This can’t be undone.`,
+  };
+}
+
+async function requestDeleteExpense(id) {
+  const e = expenses.find((x) => x.id === id);
+  if (!e) return;
+  const copy = deleteConfirmCopy(e);
+  const ok = await askConfirm({
+    title: copy.title,
+    body: copy.body,
+    confirmLabel: "Delete",
+  });
+  if (!ok) {
+    openRow = null;
+    renderList();
+    return;
+  }
+  await deleteExpense(id);
 }
 
 async function deleteExpense(id) {
@@ -869,6 +991,7 @@ async function deleteExpense(id) {
     openRow = null;
     renderList();
     renderHome();
+    refreshSyncStatus();
   } catch (err) {
     showToast(err.message || "Could not delete expense.");
   }
@@ -1204,6 +1327,7 @@ function showAuthScreen() {
   setAppLoading(false);
   currentUser = null;
   updateAccountMenu();
+  refreshSyncStatus();
   appReady = false;
   catEditor = null;
   categories = cloneDefaultCategories();
@@ -1229,6 +1353,7 @@ async function enterApp(session) {
     showScreen("home");
     appReady = true;
     updateAccountMenu();
+    refreshSyncStatus();
     void loadUserSettings(currentUser?.id)
       .then(() => loadCategories(currentUser?.id))
       .then(() => window.SpendRates.ensureForExpenses(expenses))
@@ -1394,7 +1519,7 @@ document.getElementById("app").addEventListener("click", (e) => {
 
   const del = e.target.closest("[data-del]");
   if (del) {
-    void deleteExpense(del.dataset.del);
+    void requestDeleteExpense(del.dataset.del);
     return;
   }
 
@@ -1421,6 +1546,14 @@ document.getElementById("listSearch").addEventListener("input", (e) => {
   listQuery = e.target.value;
   openRow = null;
   renderList();
+});
+document.getElementById("confirmOk").addEventListener("click", () => closeConfirm(true));
+document.getElementById("confirmCancel").addEventListener("click", () => closeConfirm(false));
+document.getElementById("confirmCancelBg").addEventListener("click", () => closeConfirm(false));
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const dialog = document.getElementById("confirmDialog");
+  if (dialog && !dialog.hidden) closeConfirm(false);
 });
 document.getElementById("addBack").addEventListener("click", () => {
   const back = editingId ? "list" : "home";
