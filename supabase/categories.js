@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Per-user expense categories (name, color, icon, fixed vs variable).
+ * Per-user expense categories (variable / fixed / one-off).
  * Maps to public.categories in Supabase.
  */
 const SpendCategories = {
@@ -21,6 +21,7 @@ const SpendCategories = {
       color: row.color,
       icon: row.icon,
       fixed: !!row.fixed,
+      oneOff: !!row.one_off,
     };
   },
 
@@ -31,28 +32,42 @@ const SpendCategories = {
       name: cat.name,
       color: cat.color,
       icon: cat.icon,
-      fixed: !!cat.fixed,
+      fixed: !!cat.fixed && !cat.oneOff,
+      one_off: !!cat.oneOff,
       sort_order: sortOrder,
     };
   },
 
   async fetchAll(userId) {
-    const { data, error } = await this._db()
+    const db = this._db();
+    let { data, error } = await db
       .from("categories")
-      .select("id, name, color, icon, fixed, sort_order")
+      .select("id, name, color, icon, fixed, one_off, sort_order")
       .eq("user_id", userId)
       .order("sort_order", { ascending: true });
+    if (error && /one_off/i.test(error.message || "")) {
+      ({ data, error } = await db
+        .from("categories")
+        .select("id, name, color, icon, fixed, sort_order")
+        .eq("user_id", userId)
+        .order("sort_order", { ascending: true }));
+    }
     if (error) throw error;
     return (data || []).map((row) => this.rowToCat(row));
   },
 
   /** Replace the user's full category list (expenses reference ids as plain text). */
   async saveAll(userId, list) {
-    const { error: delErr } = await this._db().from("categories").delete().eq("user_id", userId);
+    const db = this._db();
+    const { error: delErr } = await db.from("categories").delete().eq("user_id", userId);
     if (delErr) throw delErr;
     if (!list.length) return;
     const rows = list.map((cat, i) => this._toRow(userId, cat, i));
-    const { error } = await this._db().from("categories").insert(rows);
+    let { error } = await db.from("categories").insert(rows);
+    if (error && /one_off/i.test(error.message || "")) {
+      const legacy = rows.map(({ one_off, ...rest }) => rest);
+      ({ error } = await db.from("categories").insert(legacy));
+    }
     if (error) throw error;
   },
 };

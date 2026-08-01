@@ -7,7 +7,7 @@ const ICONS = {
   cart: P('<circle cx="9" cy="20" r="1.3"/><circle cx="18" cy="20" r="1.3"/><path d="M3 4h2l2.2 11.2a1 1 0 0 0 1 .8h8.6a1 1 0 0 0 1-.8L20 8H6"/>'),
   food: P('<path d="M5 3v7a2 2 0 0 0 4 0V3M7 10v11"/><path d="M16 3c-1.5 0-2.5 2-2.5 4.5S15 12 16 12v9"/>'),
   bus: P('<rect x="4" y="4" width="16" height="12" rx="2"/><path d="M4 11h16"/><circle cx="8" cy="19" r="1.3"/><circle cx="16" cy="19" r="1.3"/><path d="M7 16v2M17 16v2"/>'),
-  plane: P('<path d="M10.5 2.5c.8-.8 2-.8 2.6 0 .5.7.4 1.6-.2 2.2L11 6.6l1.6 6.4 2-2a1.4 1.4 0 0 1 2 2l-2.6 2.6.6 3.2-1.6 1-2-3.6-2 3.6-1.6-1 .6-3.2L5.4 15a1.4 1.4 0 0 1-2-2l2-2L7 12.6l-1.9-6.4-1.9 1.1c-.6.4-1.4.2-1.7-.4"/>'),
+  plane: P('<path d="M21 3.5 12.5 12"/><path d="M21 3.5 14.5 21l-2.5-7.5L5 11.5 21 3.5Z"/>'),
   glass: P('<path d="M5 4h14l-6 7v6"/><path d="M9 20h6"/>'),
   refresh: P('<path d="M4 12a8 8 0 0 1 13.7-5.6L21 9"/><path d="M21 4v5h-5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L3 15"/><path d="M3 20v-5h5"/>'),
   bucket: P('<path d="M4 7h16l-1.4 12.2a1 1 0 0 1-1 .8H6.4a1 1 0 0 1-1-.8L4 7Z"/><path d="M3 7h18"/><path d="M9 4h6"/>'),
@@ -26,6 +26,41 @@ const ICONS = {
   chevron: P('<path d="M6 9l6 6 6-6"/>'),
   chevronLeft: P('<path d="M15 6l-6 6 6 6"/>'),
   chevronRight: P('<path d="M9 6l6 6-6 6"/>'),
+  /* category pick icons */
+  coffee: P('<path d="M5 9h11v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9Z"/><path d="M16 10h2a2.5 2.5 0 0 1 0 5h-2"/><path d="M7 4v2M10 3v3M13 4v2"/>'),
+  car: P('<path d="M4 14h16l-1.2-4.2A2 2 0 0 0 16.9 8H7.1a2 2 0 0 0-1.9 1.8L4 14Z"/><path d="M5 14v3h2.5M19 14v3h-2.5"/><circle cx="8" cy="17" r="1.3"/><circle cx="16" cy="17" r="1.3"/><path d="M4 11h16"/>'),
+  train: P('<rect x="6" y="4" width="12" height="13" rx="2"/><path d="M6 11h12M9 17l-2 3M15 17l2 3"/><circle cx="9.5" cy="14" r="1"/><circle cx="14.5" cy="14" r="1"/>'),
+  bike: P('<circle cx="6.5" cy="16.5" r="3"/><circle cx="17.5" cy="16.5" r="3"/><path d="M6.5 16.5 11 8h3l3.5 8.5M11 8l-2 5h6"/>'),
+  fuel: P('<rect x="5" y="4" width="10" height="16" rx="1.5"/><path d="M15 7h2.5a2 2 0 0 1 2 2v7.5a1.5 1.5 0 0 0 1.5 1.5"/><path d="M8 8h4"/>'),
+  heart: P('<path d="M12 20s-7-4.4-7-9.2A3.8 3.8 0 0 1 12 8a3.8 3.8 0 0 1 7 2.8C19 15.6 12 20 12 20Z"/>'),
+  gift: P('<rect x="4" y="9" width="16" height="11" rx="1.5"/><path d="M12 9v11M4 13h16"/><path d="M12 9c-2 0-3.5-1.4-3.5-3S11 4 12 6.2C13 4 14.5 3 15.5 6S14 9 12 9Z"/>'),
+  game: P('<path d="M7 9h10a4 4 0 0 1 4 4v2a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4v-2a4 4 0 0 1 4-4Z"/><path d="M8.5 13v3M7 14.5h3M15.5 13.5h.01M17.5 15.5h.01"/>'),
+  music: P('<path d="M9 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M11.5 16V6l7-2v9"/><path d="M16 15a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/>'),
+  film: P('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>'),
+  book: P('<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v16H7.5A2.5 2.5 0 0 0 5 21.5V5.5Z"/><path d="M5 18.5A2.5 2.5 0 0 1 7.5 16H19"/>'),
+  fitness: P('<path d="M7 9v6M17 9v6M4 11v2M20 11v2M9 8h6v8H9z"/>'),
+  medical: P('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/>'),
+  pet: P('<circle cx="12" cy="14" r="4"/><circle cx="6.5" cy="9" r="2"/><circle cx="10" cy="6.5" r="2"/><circle cx="14" cy="6.5" r="2"/><circle cx="17.5" cy="9" r="2"/>'),
+  shirt: P('<path d="M8 5 5 8l2 2 2-1v10h6V9l2 1 2-2-3-3-2 1h-2L8 5Z"/>'),
+  phone: P('<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/>'),
+  wifi: P('<path d="M5 10.5a9 9 0 0 1 14 0"/><path d="M8 13.5a5 5 0 0 1 8 0"/><circle cx="12" cy="17.5" r="1.2"/>'),
+  wallet: P('<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M16 14h3"/>'),
+  bank: P('<path d="M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 18h18M12 4 3 9h18L12 4Z"/>'),
+  key: P('<circle cx="8" cy="12" r="3.5"/><path d="M11 12h10l-2 2 2 2"/>'),
+  wrench: P('<path d="M15.5 5.5a4 4 0 0 0-5.3 5.3L5 16l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-3 3-2.5-2.5 3-3Z"/>'),
+  camera: P('<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.2"/>'),
+  map: P('<path d="M9 4 4 6v14l5-2 6 2 5-2V4l-5 2-6-2Z"/><path d="M9 4v14M15 6v14"/>'),
+  building: P('<rect x="5" y="4" width="14" height="16" rx="1"/><path d="M9 8h2M13 8h2M9 12h2M13 12h2M9 16h2M13 16h2"/>'),
+  baby: P('<circle cx="12" cy="9" r="3.5"/><path d="M7 19c0-2.8 2.2-5 5-5s5 2.2 5 5"/><path d="M9 9.5c0 0 .8-1.5 3-1.5s3 1.5 3 1.5"/>'),
+  leaf: P('<path d="M5 14c0-5 4-9 11-9 0 7-4 11-11 9Z"/><path d="M8 14c2-2 5-4 9-5"/>'),
+  pill: P('<path d="M9.5 4.5a4 4 0 0 1 5.7 5.7l-7 7A4 4 0 0 1 2.5 11.5l7-7Z"/><path d="M8 13.5 13.5 8"/>'),
+  sun: P('<circle cx="12" cy="12" r="3.5"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>'),
+  umbrella: P('<path d="M12 12v7a2 2 0 0 0 4 0"/><path d="M4 12a8 8 0 0 1 16 0H4Z"/>'),
+  star: P('<path d="M12 3.5 14.2 9l5.8.5-4.4 3.7 1.4 5.6L12 15.8 6.9 18.8l1.4-5.6L4 9.5 9.8 9 12 3.5Z"/>'),
+  zap: P('<path d="M13 3 5 14h7l-1 7 8-11h-7l1-7Z"/>'),
+  smile: P('<circle cx="12" cy="12" r="8"/><path d="M8.5 10h.01M15.5 10h.01M8.5 14.5S10 16.5 12 16.5s3.5-2 3.5-2"/>'),
+  scissors: P('<circle cx="7" cy="7" r="2.5"/><circle cx="7" cy="17" r="2.5"/><path d="M9 8.5 20 18M9 15.5 20 6"/>'),
+  tree: P('<path d="M12 21v-6"/><path d="M12 15c-3.5 0-6-2-6-5 0 0 2.5.5 4-.5C9 6 11 4 12 4s3 2 2 5.5c1.5 1 4 .5 4 .5 0 3-2.5 5-6 5Z"/>'),
 };
 function paintIcons(root) {
   (root || document).querySelectorAll("[data-ico]").forEach((e) => {
@@ -40,24 +75,132 @@ function paintIcons(root) {
 /* ---------- data ---------- */
 const DEFAULT_CATS = [
   /* Variable spending */
-  { id: "groceries", name: "Groceries", color: "#5E9022", icon: "cart", fixed: false },
-  { id: "eating", name: "Eating out", color: "#D2582E", icon: "food", fixed: false },
-  { id: "transport", name: "Transport", color: "#2F82D6", icon: "bus", fixed: false },
-  { id: "trips", name: "Trips", color: "#1B9670", icon: "plane", fixed: false },
-  { id: "nightlife", name: "Nightlife", color: "#CB4E77", icon: "glass", fixed: false },
-  { id: "household", name: "Household", color: "#726D64", icon: "bucket", fixed: false },
+  { id: "groceries", name: "Groceries", color: "#5E9022", icon: "cart", fixed: false, oneOff: false },
+  { id: "eating", name: "Eating out", color: "#D2582E", icon: "food", fixed: false, oneOff: false },
+  { id: "transport", name: "Transport", color: "#2F82D6", icon: "bus", fixed: false, oneOff: false },
+  { id: "trips", name: "Trips", color: "#1B9670", icon: "plane", fixed: false, oneOff: false },
+  { id: "nightlife", name: "Nightlife", color: "#CB4E77", icon: "glass", fixed: false, oneOff: false },
+  { id: "household", name: "Household", color: "#726D64", icon: "bucket", fixed: false, oneOff: false },
   /* Fixed spending */
-  { id: "rent", name: "Rent", color: "#5B51C6", icon: "home", fixed: true },
-  { id: "subs", name: "Subscriptions", color: "#B06E14", icon: "refresh", fixed: true },
+  { id: "rent", name: "Rent", color: "#5B51C6", icon: "home", fixed: true, oneOff: false },
+  { id: "subs", name: "Subscriptions", color: "#B06E14", icon: "refresh", fixed: true, oneOff: false },
+  /* Unique / one-off (outside variable budget; in Analysis except weekend/weekday) */
+  { id: "oneoffs", name: "Unique", color: "#9333EA", icon: "gift", fixed: false, oneOff: true },
 ];
-const PICK_COLORS = ["#5B51C6", "#5E9022", "#D2582E", "#2F82D6", "#1B9670", "#CB4E77", "#B06E14", "#726D64"];
-const PICK_ICONS = ["home", "cart", "food", "bus", "plane", "glass", "refresh", "bucket", "list", "chart", "dots"];
+const PICK_COLORS = [
+  "#5B51C6", "#7C3AED", "#9333EA", "#2F82D6", "#0EA5E9", "#0891B2",
+  "#1B9670", "#10B981", "#5E9022", "#84CC16", "#D2582E", "#F97316",
+  "#E11D48", "#CB4E77", "#DB2777", "#B06E14", "#CA8A04", "#726D64",
+  "#475569", "#0F766E",
+];
+const PICK_ICONS = [
+  "cart", "food", "coffee", "glass", "bus", "car", "train", "bike", "fuel", "plane",
+  "home", "building", "bucket", "shirt", "gift", "heart", "pet", "baby", "fitness", "medical",
+  "pill", "game", "music", "film", "book", "camera", "phone", "wifi", "wallet", "bank",
+  "key", "wrench", "calendar", "map", "leaf", "tree", "sun", "umbrella", "star", "zap",
+  "smile", "scissors", "refresh", "lock", "chart", "list", "dots",
+];
+const ICON_NAME_HINTS = [
+  { icon: "cart", words: ["grocer", "supermarket", "shop", "store", "market", "aldi", "coles", "woolworth"] },
+  { icon: "food", words: ["eat", "food", "restaurant", "lunch", "dinner", "cafe", "meal", "takeaway", "dining"] },
+  { icon: "coffee", words: ["coffee", "cafe", "tea", "barista"] },
+  { icon: "glass", words: ["night", "bar", "drink", "beer", "wine", "pub", "club", "alcohol"] },
+  { icon: "bus", words: ["transport", "transit", "bus", "tram", "opal", "ticket"] },
+  { icon: "car", words: ["car", "uber", "taxi", "drive", "parking", "rego"] },
+  { icon: "train", words: ["train", "rail", "metro", "subway"] },
+  { icon: "bike", words: ["bike", "cycle", "scooter"] },
+  { icon: "fuel", words: ["fuel", "petrol", "gas", "diesel"] },
+  { icon: "plane", words: ["trip", "travel", "flight", "plane", "holiday", "vacation", "airbnb"] },
+  { icon: "home", words: ["rent", "home", "house", "mortgage", "apartment"] },
+  { icon: "building", words: ["office", "work", "cowork", "building"] },
+  { icon: "bucket", words: ["house", "household", "cleaning", "laundry", "homeware"] },
+  { icon: "shirt", words: ["cloth", "fashion", "apparel", "shoe", "wear"] },
+  { icon: "gift", words: ["gift", "present", "birthday", "donate", "charity", "unique", "one-off", "oneoff", "shoes", "bag", "purchase"] },
+  { icon: "heart", words: ["date", "love", "wedding", "partner"] },
+  { icon: "pet", words: ["pet", "dog", "cat", "vet", "animal"] },
+  { icon: "baby", words: ["baby", "kid", "child", "daycare", "school"] },
+  { icon: "fitness", words: ["gym", "fitness", "sport", "yoga", "workout"] },
+  { icon: "medical", words: ["health", "doctor", "hospital", "dental", "medical", "clinic"] },
+  { icon: "pill", words: ["pharmacy", "medicine", "chemist", "drug"] },
+  { icon: "game", words: ["game", "gaming", "playstation", "xbox", "steam"] },
+  { icon: "music", words: ["music", "spotify", "concert", "festival"] },
+  { icon: "film", words: ["movie", "film", "cinema", "netflix", "disney", "streaming"] },
+  { icon: "book", words: ["book", "education", "course", "study", "uni", "university"] },
+  { icon: "camera", words: ["photo", "camera", "picture"] },
+  { icon: "phone", words: ["phone", "mobile", "telstra", "optus", "vodafone"] },
+  { icon: "wifi", words: ["internet", "wifi", "nbn", "broadband"] },
+  { icon: "wallet", words: ["cash", "atm", "wallet", "pocket"] },
+  { icon: "bank", words: ["bank", "fee", "transfer", "finance", "insurance"] },
+  { icon: "key", words: ["key", "locksmith", "security"] },
+  { icon: "wrench", words: ["repair", "maintenance", "fix", "tool", "service"] },
+  { icon: "calendar", words: ["event", "ticket", "booking", "appointment"] },
+  { icon: "map", words: ["map", "tour", "sightseeing"] },
+  { icon: "leaf", words: ["garden", "plant", "green", "organic"] },
+  { icon: "tree", words: ["park", "nature", "outdoor", "camp"] },
+  { icon: "sun", words: ["summer", "beach", "holiday sun"] },
+  { icon: "umbrella", words: ["rain", "weather", "insurance"] },
+  { icon: "star", words: ["fun", "hobby", "misc", "other"] },
+  { icon: "zap", words: ["power", "electric", "energy", "utility", "utilities"] },
+  { icon: "smile", words: ["fun", "leisure", "entertainment"] },
+  { icon: "scissors", words: ["hair", "salon", "barber", "beauty", "cut"] },
+  { icon: "refresh", words: ["sub", "subscription", "membership", "recurring"] },
+  { icon: "lock", words: ["fixed", "secure"] },
+];
 let categories = DEFAULT_CATS.map((c) => ({ ...c }));
 const catById = (id) =>
-  categories.find((c) => c.id === id) || { id, name: "Other", color: "#726D64", icon: "dots", fixed: false };
+  categories.find((c) => c.id === id) || {
+    id,
+    name: "Other",
+    color: "#726D64",
+    icon: "dots",
+    fixed: false,
+    oneOff: false,
+  };
+
+function normalizeCat(c) {
+  const oneOff = !!c.oneOff;
+  return {
+    ...c,
+    oneOff,
+    fixed: oneOff ? false : !!c.fixed,
+  };
+}
+
+function catKind(c) {
+  if (c?.oneOff) return "unique";
+  if (c?.fixed) return "fixed";
+  return "variable";
+}
+
+function isVariableCat(c) {
+  return catKind(c) === "variable";
+}
+function isFixedCat(c) {
+  return catKind(c) === "fixed";
+}
+function isOneOffCat(c) {
+  return catKind(c) === "unique";
+}
+
+/** Ensure the Unique one-off category exists (for existing accounts). */
+function ensureUniqueCategory(list) {
+  const cats = list.map(normalizeCat);
+  if (cats.some((c) => c.oneOff || c.id === "oneoffs")) return cats;
+  cats.push({
+    id: "oneoffs",
+    name: "Unique",
+    color: "#9333EA",
+    icon: "gift",
+    fixed: false,
+    oneOff: true,
+  });
+  return cats;
+}
+
 const DEFAULT_VARIABLE_BUDGET = 1000;
 let variableBudget = DEFAULT_VARIABLE_BUDGET;
-let catEditor = null; /* { id, fixed, isNew } when editing in More */
+/** @type {{ id: string|null, isNew: boolean, kind: 'variable'|'fixed'|'unique', name: string, color: string, icon: string, iconLocked: boolean } | null} */
+let catEditor = null;
 
 let uid = 1;
 const nid = () => "e" + uid++;
@@ -149,7 +292,7 @@ function writeLocalCategories(userId, list) {
 }
 
 function cloneDefaultCategories() {
-  return DEFAULT_CATS.map((c) => ({ ...c }));
+  return DEFAULT_CATS.map((c) => normalizeCat(c));
 }
 
 async function loadCategories(userId) {
@@ -159,33 +302,34 @@ async function loadCategories(userId) {
   }
 
   const local = readLocalCategories(userId);
-  if (local?.length) categories = local.map((c) => ({ ...c }));
-
-  let normalizedGroceries = false;
-  const groceriesLocal = categories.find((c) => c.id === "groceries");
-  if (groceriesLocal?.fixed) {
-    groceriesLocal.fixed = false;
-    normalizedGroceries = true;
+  if (local?.length) {
+    categories = ensureUniqueCategory(local);
+    const groceriesLocal = categories.find((c) => c.id === "groceries");
+    if (groceriesLocal?.fixed) groceriesLocal.fixed = false;
   }
 
   if (!window.SpendCategories?.isEnabled()) {
     if (!categories.length) categories = cloneDefaultCategories();
-    else if (normalizedGroceries) writeLocalCategories(userId, categories);
+    else writeLocalCategories(userId, categories);
     return;
   }
 
   try {
     let list = await window.SpendCategories.fetchAll(userId);
+    let dirty = false;
     if (!list.length) {
       list = cloneDefaultCategories();
-      await window.SpendCategories.saveAll(userId, list);
+      dirty = true;
     }
-    categories = list.map((c) => ({ ...c }));
+    const hadUnique = list.some((c) => c.oneOff || c.id === "oneoffs");
+    categories = ensureUniqueCategory(list.map((c) => normalizeCat(c)));
+    if (!hadUnique && categories.some((c) => c.oneOff)) dirty = true;
     const groceries = categories.find((c) => c.id === "groceries");
     if (groceries?.fixed) {
       groceries.fixed = false;
-      await window.SpendCategories.saveAll(userId, categories);
+      dirty = true;
     }
+    if (dirty) await window.SpendCategories.saveAll(userId, categories);
     writeLocalCategories(userId, categories);
   } catch (e) {
     if (!categories.length) categories = cloneDefaultCategories();
@@ -438,6 +582,7 @@ function wireOnlineSync() {
         showToast("All caught up — offline expenses synced.");
         if (currentScreen === "home") renderHome();
         if (currentScreen === "list") renderList();
+        if (currentScreen === "analyse") renderAnalyse();
       }
       refreshSyncStatus();
     })();
@@ -602,10 +747,15 @@ function matchesListQuery(e, q) {
   return hay.includes(q);
 }
 function syncMonthSwitcher(which) {
-  const isList = which === "list";
-  const label = document.getElementById(isList ? "listMonthLabel" : "monthLabel");
-  const prev = document.getElementById(isList ? "listMonthPrev" : "monthPrev");
-  const next = document.getElementById(isList ? "listMonthNext" : "monthNext");
+  const map = {
+    home: { label: "monthLabel", prev: "monthPrev", next: "monthNext" },
+    list: { label: "listMonthLabel", prev: "listMonthPrev", next: "listMonthNext" },
+    analyse: { label: "analyseMonthLabel", prev: "analyseMonthPrev", next: "analyseMonthNext" },
+  };
+  const ids = map[which] || map.home;
+  const label = document.getElementById(ids.label);
+  const prev = document.getElementById(ids.prev);
+  const next = document.getElementById(ids.next);
   if (label) label.textContent = viewMonthLabel();
   if (prev) prev.disabled = false;
   if (next) next.disabled = isCurrentViewMonth();
@@ -613,14 +763,17 @@ function syncMonthSwitcher(which) {
 function refreshViewMonthScreens() {
   if (currentScreen === "home") renderHome();
   else if (currentScreen === "list") renderList();
+  else if (currentScreen === "analyse") renderAnalyse();
   else {
     syncMonthSwitcher("home");
     syncMonthSwitcher("list");
+    syncMonthSwitcher("analyse");
   }
   void window.SpendRates.ensureForDate(viewMonth).then((updated) => {
     if (!updated) return;
     if (currentScreen === "home") renderHome();
     if (currentScreen === "list") renderList();
+    if (currentScreen === "analyse") renderAnalyse();
   });
 }
 function shiftViewMonth(delta) {
@@ -679,21 +832,27 @@ function renderHome() {
 
   const month = expenses.filter(expenseInViewMonth);
   const total = month.reduce((s, e) => s + e.amount, 0);
-  const fixed = month.filter((e) => catById(e.cat).fixed).reduce((s, e) => s + e.amount, 0);
-  const variable = total - fixed;
+  const fixed = month
+    .filter((e) => isFixedCat(catById(e.cat)))
+    .reduce((s, e) => s + e.amount, 0);
+  const oneOff = month
+    .filter((e) => isOneOffCat(catById(e.cat)))
+    .reduce((s, e) => s + e.amount, 0);
+  const variable = total - fixed - oneOff;
   const left = variableBudget - variable;
   const pct = Math.min(100, Math.round((variable / variableBudget) * 100));
   const over = variable > variableBudget;
 
   const byCat = categories
+    .filter((c) => !isOneOffCat(c))
     .map((c) => ({
-    c,
-    sum: month.filter((e) => e.cat === c.id).reduce((s, e) => s + e.amount, 0),
-  }))
+      c,
+      sum: month.filter((e) => e.cat === c.id).reduce((s, e) => s + e.amount, 0),
+    }))
     .filter((x) => x.sum > 0)
     .sort((a, b) => b.sum - a.sum);
   const fixedNames = categories
-    .filter((c) => c.fixed && month.some((e) => e.cat === c.id))
+    .filter((c) => isFixedCat(c) && month.some((e) => e.cat === c.id))
     .map((c) => c.name)
     .join(", ");
   const recent = [...month].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4);
@@ -743,6 +902,15 @@ function renderHome() {
           <span class="budgetmid tabular">${money(fixed)}</span>
           <span class="budgetmeta">${fixedNames ? fixedNames + " · " : ""}${daysNote}</span>
         </div>
+        ${
+          oneOff > 0
+            ? `<div class="budgetrow">
+          <span class="budgetlbl"><span class="icon" data-ico="gift"></span> Unique</span>
+          <span class="budgetmid tabular">${money(oneOff)}</span>
+          <span class="budgetmeta">Outside budget</span>
+        </div>`
+            : ""
+        }
       </div>
     </div>
     <button class="addbtn" data-nav="add"><span class="icon" data-ico="plus"></span>Add expense</button>
@@ -1013,7 +1181,12 @@ function showScreen(name) {
   app.classList.remove("modal");
   currentScreen = name;
   openRow = null;
-  const map = { home: "screen-home", list: "screen-list", analyse: "screen-stub", more: "screen-stub" };
+  const map = {
+    home: "screen-home",
+    list: "screen-list",
+    analyse: "screen-analyse",
+    more: "screen-stub",
+  };
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
   document.getElementById(map[name]).classList.add("active");
   setNav(name);
@@ -1023,89 +1196,508 @@ function showScreen(name) {
   if (name === "more") renderMore();
 }
 
+function expensesInMonthDate(monthDate) {
+  const y = monthDate.getFullYear();
+  const m = monthDate.getMonth();
+  return expenses.filter((e) => {
+    const d = new Date(e.date);
+    return d.getFullYear() === y && d.getMonth() === m;
+  });
+}
+
+function sumAmounts(items) {
+  return items.reduce((s, e) => s + e.amount, 0);
+}
+
+function catBreakdownFor(items) {
+  return categories
+    .map((c) => ({
+      c,
+      sum: sumAmounts(items.filter((e) => e.cat === c.id)),
+    }))
+    .filter((x) => x.sum > 0)
+    .sort((a, b) => b.sum - a.sum);
+}
+
+function analyseMonthStats(monthDate) {
+  const items = expensesInMonthDate(monthDate);
+  const variableItems = items.filter((e) => isVariableCat(catById(e.cat)));
+  const fixedItems = items.filter((e) => isFixedCat(catById(e.cat)));
+  const oneOffItems = items.filter((e) => isOneOffCat(catById(e.cat)));
+  const variable = sumAmounts(variableItems);
+  const fixed = sumAmounts(fixedItems);
+  const oneOff = sumAmounts(oneOffItems);
+  return {
+    items,
+    variableItems,
+    fixedItems,
+    oneOffItems,
+    total: variable + fixed + oneOff,
+    variable,
+    fixed,
+    oneOff,
+    byCatAll: catBreakdownFor(items),
+  };
+}
+
+function isWeekendDate(iso) {
+  const day = new Date(iso).getDay();
+  return day === 0 || day === 6;
+}
+
+function fmtDelta(n) {
+  const abs = money(Math.abs(n));
+  if (n > 0.009) return "+" + abs;
+  if (n < -0.009) return "−" + abs;
+  return money(0);
+}
+
+/** Neutral highlight lines — full spend; weekend note uses variable only. */
+function buildAnalyseHighlights(cur, prev) {
+  const lines = [];
+  const top = cur.byCatAll[0];
+  if (top && cur.total > 0) {
+    const pct = Math.round((top.sum / cur.total) * 100);
+    lines.push(
+      `<strong>${esc(top.c.name)}</strong> is ${pct}% of spend (${money(top.sum)}).`,
+    );
+  }
+
+  if (cur.total > 0) {
+    const bits = [
+      `<strong>${Math.round((cur.variable / cur.total) * 100)}% variable</strong> (${money(cur.variable)})`,
+      `<strong>${Math.round((cur.fixed / cur.total) * 100)}% fixed</strong> (${money(cur.fixed)})`,
+    ];
+    if (cur.oneOff > 0) {
+      bits.push(
+        `<strong>${Math.round((cur.oneOff / cur.total) * 100)}% unique</strong> (${money(cur.oneOff)})`,
+      );
+    }
+    lines.push(bits.join(" · ") + ".");
+  }
+
+  if (prev.items.length || cur.items.length) {
+    const diff = cur.total - prev.total;
+    if (Math.abs(diff) >= 1) {
+      lines.push(`Total spend is <strong>${fmtDelta(diff)}</strong> vs last month.`);
+    }
+  }
+
+  const weekend = sumAmounts(cur.variableItems.filter((e) => isWeekendDate(e.date)));
+  const weekday = cur.variable - weekend;
+  if (cur.variable > 0 && Math.abs(weekend - weekday) >= 1) {
+    const heavier = weekend > weekday ? "Weekends" : "Weekdays";
+    lines.push(
+      `<strong>${heavier}</strong> account for more variable spend this month.`,
+    );
+  }
+
+  return lines.slice(0, 3);
+}
+
+function moneyCompact(n) {
+  if (n >= 1000) return "$" + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
+  return "$" + Math.round(n);
+}
+
+/** Multi-segment donut for category share of total spend. */
+function svgCategoryDonut(rows, total) {
+  if (total <= 0 || !rows.length) return "";
+  const r = 36;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+  const segments = rows
+    .map(({ c, sum }) => {
+      const len = (sum / total) * circ;
+      const el = `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${c.color}" stroke-width="14"
+        stroke-dasharray="${len.toFixed(2)} ${circ.toFixed(2)}"
+        stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 50 50)"/>`;
+      offset += len;
+      return el;
+    })
+    .join("");
+  return `<svg class="an-donut" viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="an-donut-track" cx="50" cy="50" r="${r}" fill="none" stroke-width="14"/>
+    ${segments}
+    <text x="50" y="47" text-anchor="middle" class="an-donut-total tabular">${moneyCompact(total)}</text>
+    <text x="50" y="61" text-anchor="middle" class="an-donut-sub">total</text>
+  </svg>`;
+}
+
+function renderSplitChartRows(variable, fixed, oneOff, total) {
+  const rows = [
+    { name: "Variable", color: "#1D9E75", icon: "chart", sum: variable },
+    { name: "Fixed", color: "#5B51C6", icon: "lock", sum: fixed },
+    { name: "Unique", color: "#9333EA", icon: "gift", sum: oneOff },
+  ].filter((r) => r.sum > 0);
+  if (!rows.length) return `<div class="an-meta">Nothing to show.</div>`;
+  const max = Math.max(...rows.map((r) => r.sum), 1);
+  return rows
+    .map((r) => {
+      const pct = total > 0 ? Math.round((r.sum / total) * 100) : 0;
+      const bar = Math.round((r.sum / max) * 100);
+      return `<div class="an-catrow">
+        <div class="an-catdot" style="background:${r.color}"><span class="icon" data-ico="${r.icon}"></span></div>
+        <div class="an-catname">${r.name}</div>
+        <div>
+          <div class="an-catamt tabular">${money(r.sum)}</div>
+          <div class="an-catpct tabular">${pct}%</div>
+        </div>
+        <div class="an-catbarwrap"><i style="width:${bar}%;background:${r.color}"></i></div>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderCategoryLegend(rows, total) {
+  return rows
+    .map(({ c, sum }) => {
+      const pct = total > 0 ? Math.round((sum / total) * 100) : 0;
+      return `<div class="an-legend-row">
+        <span class="an-swatch" style="background:${c.color}"></span>
+        <span class="an-legend-name">${esc(c.name)}</span>
+        <span class="tabular">${money(sum)} · ${pct}%</span>
+      </div>`;
+    })
+    .join("");
+}
+
 function renderAnalyse() {
-  document.getElementById("stubTitle").textContent = "Analysis";
-  const el = document.getElementById("stubContent");
-  el.className = "stub";
+  syncMonthSwitcher("analyse");
+  paintIcons(document.getElementById("analyseMonthSwitcher"));
+
+  const el = document.getElementById("analyseScroll");
+  if (!el) return;
+
+  const cur = analyseMonthStats(viewMonth);
+  const prevMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1);
+  const prev = analyseMonthStats(prevMonth);
+
+  if (!cur.items.length) {
+    el.innerHTML = `<div class="an-empty">No expenses in ${esc(
+      viewMonth.toLocaleDateString("en-GB", { month: "long" }),
+    )} yet.<br>Log a few to see insights.</div>`;
+    return;
+  }
+
+  const highlights = buildAnalyseHighlights(cur, prev);
+  const highlightsHtml = highlights.length
+    ? `<div class="an-card"><div class="an-kicker">Highlights</div><div class="an-highlights">${highlights
+        .map((h) => `<div class="an-highlight">${h}</div>`)
+        .join("")}</div></div>`
+    : "";
+
+  const varDiff = cur.variable - prev.variable;
+  const fixDiff = cur.fixed - prev.fixed;
+  const oneOffDiff = cur.oneOff - prev.oneOff;
+  const totDiff = cur.total - prev.total;
+  const showUniqueMom = cur.oneOff > 0 || prev.oneOff > 0;
+  const momMax = Math.max(
+    cur.variable,
+    prev.variable,
+    cur.fixed,
+    prev.fixed,
+    cur.oneOff,
+    prev.oneOff,
+    1,
+  );
+
+  const prevById = new Map(prev.byCatAll.map((x) => [x.c.id, x.sum]));
+  const movers = cur.byCatAll
+    .map(({ c, sum }) => ({ c, sum, diff: sum - (prevById.get(c.id) || 0) }))
+    .filter((x) => Math.abs(x.diff) >= 1)
+    .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+    .slice(0, 2);
+  const moversHtml = movers.length
+    ? `<div class="an-movers">${movers
+        .map(
+          (m) =>
+            `<div class="an-mover"><span class="an-mover-name">${esc(m.c.name)}</span><span class="an-mover-delta tabular">${fmtDelta(m.diff)}</span></div>`,
+        )
+        .join("")}</div>`
+    : "";
+
+  /* Weekend/weekday uses variable only — Unique one-offs would skew the pattern. */
+  const weekendItems = cur.variableItems.filter((e) => isWeekendDate(e.date));
+  const weekdayItems = cur.variableItems.filter((e) => !isWeekendDate(e.date));
+  const weekendSum = sumAmounts(weekendItems);
+  const weekdaySum = sumAmounts(weekdayItems);
+  const weekendDays = new Set(weekendItems.map((e) => isoDay(new Date(e.date)))).size || 1;
+  const weekdayDays = new Set(weekdayItems.map((e) => isoDay(new Date(e.date)))).size || 1;
+  const splitMax = Math.max(weekendSum, weekdaySum, 1);
+
+  const whereBody = cur.total
+    ? `<div class="an-donut-wrap">
+        ${svgCategoryDonut(cur.byCatAll, cur.total)}
+        <div class="an-legend">
+          ${renderCategoryLegend(cur.byCatAll, cur.total)}
+        </div>
+      </div>`
+    : `<div class="an-meta">Nothing to show.</div>`;
+
+  const uniqueMomCol = showUniqueMom
+    ? `<div class="an-mom-col">
+          <div class="an-mom-bars">
+            <div class="an-mom-bar prev" style="height:${Math.round((prev.oneOff / momMax) * 100)}%"></div>
+            <div class="an-mom-bar cur" style="height:${Math.round((cur.oneOff / momMax) * 100)}%;background:#9333EA"></div>
+          </div>
+          <div class="an-mom-col-lbl">Unique</div>
+        </div>`
+    : "";
+
+  const uniqueMomCell = showUniqueMom
+    ? `<div class="an-momcell">
+          <div class="an-momlbl">Unique</div>
+          <div class="an-momval tabular">${money(cur.oneOff)}</div>
+          <div class="an-momdelta">${prev.items.length || cur.oneOff ? fmtDelta(oneOffDiff) : "—"} vs prior</div>
+        </div>`
+    : "";
+
   el.innerHTML = `
-    <span class="icon" data-ico="chart"></span>
-    <h2>Charts coming next</h2>
-    <p>Spending by category, month-over-month, and your daily pace. The natural fourth screen to build once logging feels right.</p>
+    ${highlightsHtml}
+    <div class="an-card">
+      <div class="an-kicker">Where it went</div>
+      ${whereBody}
+    </div>
+    <div class="an-card">
+      <div class="an-kicker">By type</div>
+      ${renderSplitChartRows(cur.variable, cur.fixed, cur.oneOff, cur.total)}
+    </div>
+    <div class="an-card">
+      <div class="an-kicker">vs last month</div>
+      <div class="an-mom-chart" aria-hidden="true">
+        <div class="an-mom-col">
+          <div class="an-mom-bars">
+            <div class="an-mom-bar prev" style="height:${Math.round((prev.variable / momMax) * 100)}%"></div>
+            <div class="an-mom-bar cur" style="height:${Math.round((cur.variable / momMax) * 100)}%"></div>
+          </div>
+          <div class="an-mom-col-lbl">Variable</div>
+        </div>
+        <div class="an-mom-col">
+          <div class="an-mom-bars">
+            <div class="an-mom-bar prev" style="height:${Math.round((prev.fixed / momMax) * 100)}%"></div>
+            <div class="an-mom-bar cur fixed" style="height:${Math.round((cur.fixed / momMax) * 100)}%"></div>
+          </div>
+          <div class="an-mom-col-lbl">Fixed</div>
+        </div>
+        ${uniqueMomCol}
+      </div>
+      <div class="an-mom-legend"><span><i class="prev"></i> Last month</span><span><i class="cur"></i> This month</span></div>
+      <div class="an-mom">
+        <div class="an-momcell">
+          <div class="an-momlbl">Variable</div>
+          <div class="an-momval tabular">${money(cur.variable)}</div>
+          <div class="an-momdelta">${prev.items.length || cur.variable ? fmtDelta(varDiff) : "—"} vs prior</div>
+        </div>
+        <div class="an-momcell">
+          <div class="an-momlbl">Fixed</div>
+          <div class="an-momval tabular">${money(cur.fixed)}</div>
+          <div class="an-momdelta">${prev.items.length || cur.fixed ? fmtDelta(fixDiff) : "—"} vs prior</div>
+        </div>
+        ${uniqueMomCell}
+        <div class="an-momcell an-momcell--wide">
+          <div class="an-momlbl">Total</div>
+          <div class="an-momval tabular">${money(cur.total)}</div>
+          <div class="an-momdelta">${prev.items.length || cur.total ? fmtDelta(totDiff) : "—"} vs prior</div>
+        </div>
+      </div>
+      ${moversHtml}
+    </div>
+    <div class="an-card">
+      <div class="an-kicker">Weekend vs weekday</div>
+      <div class="an-hchart">
+        <div class="an-hchart-row">
+          <div class="an-hchart-lbl">Weekends</div>
+          <div class="an-hchart-track"><i style="width:${Math.round((weekendSum / splitMax) * 100)}%"></i></div>
+          <div class="an-hchart-val tabular">${money(weekendSum)}</div>
+        </div>
+        <div class="an-hchart-row">
+          <div class="an-hchart-lbl">Weekdays</div>
+          <div class="an-hchart-track"><i class="weekday" style="width:${Math.round((weekdaySum / splitMax) * 100)}%"></i></div>
+          <div class="an-hchart-val tabular">${money(weekdaySum)}</div>
+        </div>
+      </div>
+      <div class="an-split">
+        <div class="an-splitcell">
+          <div class="an-splitlbl">Weekend avg</div>
+          <div class="an-splitval tabular">${money(weekendSum / weekendDays)}</div>
+          <div class="an-splitmeta">per active day</div>
+        </div>
+        <div class="an-splitcell">
+          <div class="an-splitlbl">Weekday avg</div>
+          <div class="an-splitval tabular">${money(weekdaySum / weekdayDays)}</div>
+          <div class="an-splitmeta">per active day</div>
+        </div>
+      </div>
+      ${
+        cur.oneOff > 0
+          ? `<div class="an-meta">Variable spend only — Unique ${money(cur.oneOff)} left out of this comparison.</div>`
+          : ""
+      }
+    </div>
   `;
   paintIcons(el);
 }
 
-function renderCategoryRow(c) {
-  return `<div class="catlist-row-wrap">
-    <button type="button" class="catlist-row" data-edit-cat="${esc(c.id)}">
-      <span class="catlist-dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>
-      <span class="catlist-name">${esc(c.name)}</span>
-      <span class="icon catlist-chev" data-ico="chevronRight"></span>
-    </button>
-    <button type="button" class="catlist-del" data-del-cat="${esc(c.id)}" aria-label="Delete ${esc(c.name)}">
-      <span class="icon" data-ico="trash"></span>
-    </button>
-  </div>`;
+function suggestIconForName(name) {
+  const q = String(name || "").toLowerCase().trim();
+  if (!q) return "dots";
+  let best = null;
+  let bestLen = 0;
+  for (const hint of ICON_NAME_HINTS) {
+    for (const w of hint.words) {
+      if (q.includes(w) && w.length > bestLen) {
+        best = hint.icon;
+        bestLen = w.length;
+      }
+    }
+  }
+  return best || "star";
 }
 
-function renderCategoryList(fixed) {
-  const list = categories.filter((c) => !!c.fixed === fixed);
-  const rows = list.map(renderCategoryRow).join("");
-  const empty = `<div class="catlist-empty">${fixed ? "No fixed categories yet." : "No variable categories yet."}</div>`;
-  return `<div class="catlist-block">
-    <div class="catlist-head">
-      <span class="catlist-title">${fixed ? "Fixed spending" : "Variable spending"}</span>
-      <button type="button" class="catlist-add" data-add-cat="${fixed ? "fixed" : "variable"}">+ Add</button>
+function nextSuggestedColor() {
+  const used = new Set(categories.map((c) => c.color));
+  return PICK_COLORS.find((c) => !used.has(c)) || PICK_COLORS[categories.length % PICK_COLORS.length];
+}
+
+function setIconEl(el, ico) {
+  if (!el) return;
+  el.dataset.ico = ico;
+  delete el.dataset.done;
+  el.innerHTML = ICONS[ico] || "";
+  el.classList.add("icon");
+  el.dataset.done = "1";
+}
+
+function renderCategoryRow(c) {
+  const kind = catKind(c);
+  const tag =
+    kind === "fixed"
+      ? '<span class="catlist-tag">Fixed</span>'
+      : kind === "unique"
+        ? '<span class="catlist-tag catlist-tag--unique">Unique</span>'
+        : "";
+  return `<button type="button" class="catlist-row" data-edit-cat="${esc(c.id)}">
+      <span class="catlist-dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>
+      <span class="catlist-name">${esc(c.name)}</span>
+      ${tag}
+      <span class="icon catlist-chev" data-ico="chevronRight"></span>
+    </button>`;
+}
+
+function renderCategoriesSection() {
+  const variable = categories.filter((c) => isVariableCat(c));
+  const fixed = categories.filter((c) => isFixedCat(c));
+  const unique = categories.filter((c) => isOneOffCat(c));
+  const varRows =
+    variable.map(renderCategoryRow).join("") ||
+    `<div class="catlist-empty">No variable categories yet.</div>`;
+  const fixRows =
+    fixed.map(renderCategoryRow).join("") ||
+    `<div class="catlist-empty">No fixed categories yet.</div>`;
+  const uniqueRows =
+    unique.map(renderCategoryRow).join("") ||
+    `<div class="catlist-empty">No unique categories yet.</div>`;
+  return `<div class="catlist">
+    <button type="button" class="catlist-addbtn" data-add-cat="variable">
+      <span class="icon" data-ico="plus"></span>Add category
+    </button>
+    <div class="catlist-group">
+      <div class="catlist-label">Variable</div>
+      <div class="catlist-rows">${varRows}</div>
     </div>
-    <div class="catlist-rows">${rows || empty}</div>
+    <div class="catlist-group">
+      <div class="catlist-label">Fixed</div>
+      <div class="catlist-rows">${fixRows}</div>
+    </div>
+    <div class="catlist-group">
+      <div class="catlist-label">Unique</div>
+      <p class="catlist-note">One-offs like shoes or bags — outside your variable budget; shown in Analysis except weekend vs weekday.</p>
+      <div class="catlist-rows">${uniqueRows}</div>
+    </div>
   </div>`;
 }
 
 function renderCatEditor() {
   if (!catEditor) return "";
-  const c = catEditor.isNew
-    ? { name: "", color: PICK_COLORS[0], icon: PICK_ICONS[0], fixed: catEditor.fixed }
-    : catById(catEditor.id);
+  const { name, color, icon, kind, isNew } = catEditor;
   const colorBtns = PICK_COLORS.map(
     (col) =>
-      `<button type="button" class="swatch ${c.color === col ? "on" : ""}" data-pick-color="${col}" style="background:${col}" aria-label="Colour ${col}"></button>`
+      `<button type="button" class="swatch ${color === col ? "on" : ""}" data-pick-color="${col}" style="background:${col}" aria-label="Colour ${col}"></button>`,
   ).join("");
   const iconBtns = PICK_ICONS.map(
     (ico) =>
-      `<button type="button" class="ipick ${c.icon === ico ? "on" : ""}" data-pick-icon="${ico}" aria-label="Icon ${ico}"><span class="icon" data-ico="${ico}"></span></button>`
+      `<button type="button" class="ipick ${icon === ico ? "on" : ""}" data-pick-icon="${ico}" aria-label="Icon ${ico}"><span class="icon" data-ico="${ico}"></span></button>`,
   ).join("");
+  const previewName = name.trim() || "Category name";
   return `<div class="cateditor" id="catEditor">
-    <div class="cateditor-title">${catEditor.isNew ? "New category" : "Edit category"}</div>
+    <div class="cateditor-top">
+      <div class="cateditor-title">${isNew ? "New category" : "Edit category"}</div>
+      <button type="button" class="cateditor-close" id="catCancelBtn" aria-label="Close">
+        <span class="icon" data-ico="x"></span>
+      </button>
+    </div>
+    <div class="cat-preview" id="catPreview">
+      <span class="cat-preview-dot" id="catPreviewDot" style="background:${color}">
+        <span class="icon" id="catPreviewIcon" data-ico="${icon}"></span>
+      </span>
+      <span class="cat-preview-name" id="catPreviewName">${esc(previewName)}</span>
+    </div>
     <div class="field">
       <div class="fl">Name</div>
-      <input class="noteinput" id="catNameInput" value="${esc(c.name)}" placeholder="e.g. Pet care" autocomplete="off">
+      <input class="noteinput" id="catNameInput" value="${esc(name)}" placeholder="e.g. Coffee" autocomplete="off">
     </div>
     <div class="field">
       <div class="fl">Colour</div>
       <div class="swatches" id="colorPick">${colorBtns}</div>
     </div>
     <div class="field">
-      <div class="fl">Icon</div>
+      <div class="fl">Icon ${isNew && !catEditor.iconLocked ? '<span class="fl-hint">suggested from name</span>' : ""}</div>
       <div class="iconpicks" id="iconPick">${iconBtns}</div>
     </div>
-    <label class="fixedtoggle">
-      <input type="checkbox" id="catFixedToggle" ${c.fixed ? "checked" : ""}>
-      <span>Fixed spending <span class="fixedtoggle-hint">(rent, subscriptions — not part of variable budget)</span></span>
-    </label>
+    <div class="cat-type cat-type--3" id="catTypePick" role="group" aria-label="Category type">
+      <button type="button" class="cat-type-btn ${kind === "variable" ? "on" : ""}" data-cat-type="variable">Variable</button>
+      <button type="button" class="cat-type-btn ${kind === "fixed" ? "on" : ""}" data-cat-type="fixed">Fixed</button>
+      <button type="button" class="cat-type-btn ${kind === "unique" ? "on" : ""}" data-cat-type="unique">Unique</button>
+    </div>
+    <p class="cat-type-hint">${
+      kind === "unique"
+        ? "Outside your variable budget. Included in Analysis, but not weekend vs weekday."
+        : kind === "fixed"
+          ? "Fixed costs don’t count toward your variable spending limit."
+          : "Counts toward your monthly variable budget."
+    }</p>
     <div class="cateditor-actions">
-      <button type="button" class="savebtn" id="catSaveBtn">${catEditor.isNew ? "Add category" : "Save changes"}</button>
-      ${catEditor.isNew ? "" : '<button type="button" class="catdelbtn" id="catDeleteBtn">Delete category</button>'}
-      <button type="button" class="catcancelbtn" id="catCancelBtn">Cancel</button>
+      <button type="button" class="savebtn" id="catSaveBtn">${isNew ? "Add category" : "Save"}</button>
+      ${isNew ? "" : '<button type="button" class="catdelbtn" id="catDeleteBtn">Delete</button>'}
     </div>
   </div>`;
 }
 
-function openCatEditor(id, fixedDefault) {
+function openCatEditor(id, kindDefault) {
   if (id) {
-    const c = catById(id);
-    catEditor = { id: c.id, fixed: c.fixed, isNew: false };
+    const c = normalizeCat(catById(id));
+    catEditor = {
+      id: c.id,
+      isNew: false,
+      kind: catKind(c),
+      name: c.name,
+      color: c.color,
+      icon: PICK_ICONS.includes(c.icon) ? c.icon : "dots",
+      iconLocked: true,
+    };
   } else {
-    catEditor = { id: null, fixed: !!fixedDefault, isNew: true };
+    const kind =
+      kindDefault === "fixed" || kindDefault === "unique" ? kindDefault : "variable";
+    catEditor = {
+      id: null,
+      isNew: true,
+      kind,
+      name: "",
+      color: nextSuggestedColor(),
+      icon: kind === "unique" ? "gift" : "dots",
+      iconLocked: kind === "unique",
+    };
   }
   renderMore();
 }
@@ -1115,19 +1707,44 @@ function closeCatEditor() {
   renderMore();
 }
 
+function syncCatPreview() {
+  if (!catEditor) return;
+  const nameEl = document.getElementById("catPreviewName");
+  const dot = document.getElementById("catPreviewDot");
+  const ico = document.getElementById("catPreviewIcon");
+  if (nameEl) nameEl.textContent = catEditor.name.trim() || "Category name";
+  if (dot) dot.style.background = catEditor.color;
+  setIconEl(ico, catEditor.icon);
+}
+
+function selectCatIcon(ico, { lock = false } = {}) {
+  if (!catEditor || !PICK_ICONS.includes(ico)) return;
+  catEditor.icon = ico;
+  if (lock) catEditor.iconLocked = true;
+  const panel = document.getElementById("stubContent");
+  panel?.querySelectorAll("#iconPick .ipick").forEach((b) => {
+    b.classList.toggle("on", b.dataset.pickIcon === ico);
+  });
+  const hint = panel?.querySelector(".fl-hint");
+  if (hint && catEditor.iconLocked) hint.remove();
+  syncCatPreview();
+}
+
 function readCatEditorForm() {
-  const name = (document.getElementById("catNameInput")?.value || "").trim();
-  const fixed = !!document.getElementById("catFixedToggle")?.checked;
-  const colorBtn = document.querySelector("#colorPick .swatch.on");
-  const iconBtn = document.querySelector("#iconPick .ipick.on");
-  const color = colorBtn?.dataset.pickColor || PICK_COLORS[0];
-  const icon = iconBtn?.dataset.pickIcon || PICK_ICONS[0];
-  return { name, fixed, color, icon };
+  const kind = catEditor?.kind || "variable";
+  return {
+    name: (catEditor?.name || "").trim(),
+    kind,
+    fixed: kind === "fixed",
+    oneOff: kind === "unique",
+    color: catEditor?.color || PICK_COLORS[0],
+    icon: catEditor?.icon || "dots",
+  };
 }
 
 function wireCatEditor() {
   const panel = document.getElementById("stubContent");
-  if (!panel) return;
+  if (!panel || !catEditor) return;
 
   panel.querySelector("#catSaveBtn")?.addEventListener("click", () => {
     void handleSaveCategory();
@@ -1137,15 +1754,47 @@ function wireCatEditor() {
   });
   panel.querySelector("#catCancelBtn")?.addEventListener("click", closeCatEditor);
 
+  const nameInput = panel.querySelector("#catNameInput");
+  nameInput?.addEventListener("input", (e) => {
+    if (!catEditor) return;
+    catEditor.name = e.target.value;
+    if (catEditor.isNew && !catEditor.iconLocked) {
+      selectCatIcon(suggestIconForName(catEditor.name), { lock: false });
+    } else {
+      syncCatPreview();
+    }
+  });
+
   panel.querySelector("#colorPick")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-pick-color]");
-    if (!btn) return;
+    if (!btn || !catEditor) return;
+    catEditor.color = btn.dataset.pickColor;
     panel.querySelectorAll("#colorPick .swatch").forEach((b) => b.classList.toggle("on", b === btn));
+    syncCatPreview();
   });
+
   panel.querySelector("#iconPick")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-pick-icon]");
     if (!btn) return;
-    panel.querySelectorAll("#iconPick .ipick").forEach((b) => b.classList.toggle("on", b === btn));
+    selectCatIcon(btn.dataset.pickIcon, { lock: true });
+  });
+
+  panel.querySelector("#catTypePick")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-cat-type]");
+    if (!btn || !catEditor) return;
+    catEditor.kind = btn.dataset.catType;
+    panel.querySelectorAll("#catTypePick .cat-type-btn").forEach((b) => {
+      b.classList.toggle("on", b === btn);
+    });
+    const hint = panel.querySelector(".cat-type-hint");
+    if (hint) {
+      hint.textContent =
+        catEditor.kind === "unique"
+          ? "One-offs stay out of your variable budget and don’t skew Analysis charts."
+          : catEditor.kind === "fixed"
+            ? "Fixed costs don’t count toward your variable spending limit."
+            : "Counts toward your monthly variable budget.";
+    }
   });
 }
 
@@ -1157,23 +1806,18 @@ function wireMorePanel() {
   panel.addEventListener("click", (e) => {
     const add = e.target.closest("[data-add-cat]");
     if (add) {
-      openCatEditor(null, add.dataset.addCat === "fixed");
+      openCatEditor(null, add.dataset.addCat || "variable");
       return;
     }
     const edit = e.target.closest("[data-edit-cat]");
     if (edit) {
       openCatEditor(edit.dataset.editCat);
-      return;
-    }
-    const del = e.target.closest("[data-del-cat]");
-    if (del) {
-      void deleteCategoryById(del.dataset.delCat);
     }
   });
 }
 
 async function handleSaveCategory() {
-  const { name, fixed, color, icon } = readCatEditorForm();
+  const { name, fixed, oneOff, color, icon } = readCatEditorForm();
   if (!name) {
     showToast("Enter a category name.");
     return;
@@ -1183,7 +1827,9 @@ async function handleSaveCategory() {
   if (btn) btn.disabled = true;
   try {
     if (catEditor.isNew) {
-      categories.push({ id: makeCatId(name), name, color, icon, fixed });
+      categories.push(
+        normalizeCat({ id: makeCatId(name), name, color, icon, fixed, oneOff }),
+      );
     } else {
       const c = categories.find((x) => x.id === catEditor.id);
       if (!c) return;
@@ -1191,12 +1837,15 @@ async function handleSaveCategory() {
       c.color = color;
       c.icon = icon;
       c.fixed = fixed;
+      c.oneOff = oneOff;
+      Object.assign(c, normalizeCat(c));
     }
     await persistCategories();
     catEditor = null;
     renderMore();
     if (currentScreen === "home") renderHome();
     if (currentScreen === "list") renderList();
+    if (currentScreen === "analyse") renderAnalyse();
     showToast("Category saved.");
   } catch (err) {
     showToast(err.message || "Could not save category.");
@@ -1223,6 +1872,7 @@ async function deleteCategoryById(id) {
     renderMore();
     if (currentScreen === "home") renderHome();
     if (currentScreen === "list") renderList();
+    if (currentScreen === "analyse") renderAnalyse();
     showToast("Category deleted.");
     return true;
   } catch (err) {
@@ -1255,19 +1905,17 @@ function renderMore() {
       </div>
       <div class="account-card">
         <div class="lbl">Categories</div>
-        <p class="settings-hint">Customise labels for variable and fixed spending. Tap a category to edit.</p>
-        ${renderCategoryList(false)}
-        ${renderCategoryList(true)}
-        ${renderCatEditor()}
+        <p class="settings-hint">Tap a category to edit. Fixed and Unique stay out of your variable budget.</p>
+        ${catEditor ? renderCatEditor() : renderCategoriesSection()}
       </div>
     `;
-    document.getElementById("saveBudgetBtn").addEventListener("click", () => {
+    document.getElementById("saveBudgetBtn")?.addEventListener("click", () => {
       void handleSaveBudget();
     });
-    document.getElementById("budgetInput").addEventListener("input", (e) => {
+    document.getElementById("budgetInput")?.addEventListener("input", (e) => {
       e.target.value = e.target.value.replace(/[^0-9.,]/g, "");
     });
-    document.getElementById("budgetInput").addEventListener("keydown", (e) => {
+    document.getElementById("budgetInput")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         void handleSaveBudget();
@@ -1276,7 +1924,10 @@ function renderMore() {
     wireMorePanel();
     wireCatEditor();
     paintIcons(el);
-    if (catEditor) document.getElementById("catNameInput")?.focus();
+    if (catEditor) {
+      syncCatPreview();
+      document.getElementById("catNameInput")?.focus();
+    }
     return;
   }
   el.className = "stub";
@@ -1542,6 +2193,8 @@ document.getElementById("monthPrev").addEventListener("click", () => shiftViewMo
 document.getElementById("monthNext").addEventListener("click", () => shiftViewMonth(1));
 document.getElementById("listMonthPrev").addEventListener("click", () => shiftViewMonth(-1));
 document.getElementById("listMonthNext").addEventListener("click", () => shiftViewMonth(1));
+document.getElementById("analyseMonthPrev").addEventListener("click", () => shiftViewMonth(-1));
+document.getElementById("analyseMonthNext").addEventListener("click", () => shiftViewMonth(1));
 document.getElementById("listSearch").addEventListener("input", (e) => {
   listQuery = e.target.value;
   openRow = null;

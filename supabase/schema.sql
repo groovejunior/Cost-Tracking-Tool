@@ -42,6 +42,7 @@ create table if not exists public.categories (
   color text not null,
   icon text not null,
   fixed boolean not null default false,
+  one_off boolean not null default false,
   sort_order int not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
