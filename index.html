@@ -213,8 +213,8 @@
   </div>
 </div>
 
-<!-- Supabase: cloud auth + database (loaded before our app code) -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Supabase: cloud auth + database (vendored so the app opens without a CDN) -->
+<script src="./vendor/supabase-js.js"></script>
 <script src="./supabase/config.js"></script>
 <script src="./supabase/client.js"></script>
 <script src="./supabase/auth.js"></script>

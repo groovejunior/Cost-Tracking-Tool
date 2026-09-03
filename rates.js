@@ -51,11 +51,21 @@ const SpendRates = {
     return !!(window.SpendFxRates && window.SpendFxRates.isEnabled());
   },
 
+  _timeout(promise, ms, label) {
+    let timer;
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(label + " timed out")), ms);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  },
+
   /** Pull the shared monthly table from Supabase into local cache. */
   async syncFromCloud() {
     if (!this._cloudEnabled()) return;
     try {
-      const rows = await window.SpendFxRates.fetchAll();
+      const rows = await this._timeout(window.SpendFxRates.fetchAll(), 5000, "FX sync");
       rows.forEach((row) => {
         this.rates[row.month_key] = Number(row.eur_to_aud);
         this.fetchedAt[row.month_key] = row.fetched_at;
@@ -134,7 +144,7 @@ const SpendRates = {
   async fetchMonth(monthKey) {
     const day = this._queryDate(monthKey);
     const url = `https://api.frankfurter.app/${day}?from=EUR&to=AUD`;
-    const res = await fetch(url);
+    const res = await this._timeout(fetch(url), 5000, "FX fetch");
     if (!res.ok) throw new Error("Could not fetch exchange rate");
     const data = await res.json();
     const rate = data.rates && data.rates.AUD;

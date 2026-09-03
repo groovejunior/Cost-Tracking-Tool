@@ -1,10 +1,12 @@
-const CACHE_NAME = "spend-v52";
+const CACHE_NAME = "spend-v53";
+const NETWORK_FIRST_TIMEOUT_MS = 3000;
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./rates.js",
+  "./vendor/supabase-js.js",
   "./supabase/config.js",
   "./supabase/client.js",
   "./supabase/auth.js",
@@ -39,16 +41,28 @@ function isAppShell(url) {
   return /\.(html|js|css|webmanifest)$/.test(url.pathname) || url.pathname.endsWith("/");
 }
 
+function timeoutError(ms) {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("timeout")), ms);
+  });
+}
+
 async function networkFirst(request) {
   try {
-    const response = await fetch(request);
+    const response = await Promise.race([fetch(request), timeoutError(NETWORK_FIRST_TIMEOUT_MS)]);
     if (response && response.status === 200) {
       const copy = response.clone();
       caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
     }
     return response;
   } catch {
-    return caches.match(request);
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    try {
+      return await fetch(request);
+    } catch {
+      return Response.error();
+    }
   }
 }
 

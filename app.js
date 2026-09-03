@@ -384,10 +384,25 @@ function readLocalExpenses() {
   }
 }
 
+const NETWORK_TIMEOUT_MS = 5000;
+
+function withTimeout(promise, ms = NETWORK_TIMEOUT_MS, label = "Request") {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label + " timed out")), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 function save() {
   try {
     localStorage.setItem(storeKey, JSON.stringify(expenses));
-  } catch (e) {}
+  } catch (e) {
+    console.warn("[Spend] Could not save expenses locally:", e && e.message);
+    showToast("Could not save on this device. Check storage space.");
+  }
 }
 
 function load() {
@@ -430,25 +445,43 @@ function syncUidFromExpenses() {
   });
 }
 
+function expensesLookAlike(a, b) {
+  return (
+    a.cat === b.cat &&
+    Number(a.amount) === Number(b.amount) &&
+    (a.note || "") === (b.note || "") &&
+    a.date === b.date
+  );
+}
+
 function mergeCloudAndLocal(cloudRows, local) {
   const byId = new Map(cloudRows.map((e) => [e.id, e]));
   for (const item of local) {
-    if (!byId.has(item.id)) byId.set(item.id, item);
+    if (byId.has(item.id)) continue;
+    if (isPendingExpense(item) && cloudRows.some((c) => expensesLookAlike(c, item))) continue;
+    byId.set(item.id, item);
   }
   return [...byId.values()];
 }
 
 async function fetchCloudExpenses(userId) {
-  for (let attempt = 0; attempt < 5; attempt++) {
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      await window.SpendAuth.ensureReady();
-      return await window.SpendData.fetchAll(userId);
+      await withTimeout(window.SpendAuth.ensureReady(), NETWORK_TIMEOUT_MS, "Auth");
+      return await withTimeout(window.SpendData.fetchAll(userId), NETWORK_TIMEOUT_MS, "Cloud fetch");
     } catch (e) {
-      if (attempt === 4) throw e;
-      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+      lastErr = e;
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
     }
   }
-  return [];
+  throw lastErr;
+}
+
+function replaceExpense(oldId, next) {
+  const i = expenses.findIndex((e) => e.id === oldId);
+  if (i !== -1) expenses[i] = next;
+  else expenses.push(next);
 }
 
 /** Upload local-only expenses that are not in the cloud yet. */
@@ -458,13 +491,51 @@ async function syncPendingToCloud() {
   const pending = expenses.filter(isPendingExpense);
   if (!pending.length) return false;
 
+  let cloudRows = null;
+  const getCloud = async () => {
+    if (!cloudRows) {
+      cloudRows = await withTimeout(
+        window.SpendData.fetchAll(currentUser.id),
+        NETWORK_TIMEOUT_MS,
+        "Cloud fetch"
+      );
+    }
+    return cloudRows;
+  };
+
   let changed = false;
   for (const item of pending) {
     try {
-      const created = await window.SpendData.insert(currentUser.id, expensePayload(item));
-      const i = expenses.findIndex((e) => e.id === item.id);
-      if (i !== -1) expenses[i] = created;
-      else expenses.push(created);
+      if (isCloudId(item.id)) {
+        const updated = await withTimeout(
+          window.SpendData.update(item.id, expensePayload(item)),
+          NETWORK_TIMEOUT_MS,
+          "Save"
+        );
+        replaceExpense(item.id, updated);
+        changed = true;
+        continue;
+      }
+
+      let existing = null;
+      try {
+        existing = (await getCloud()).find((c) => expensesLookAlike(c, item)) || null;
+      } catch (e) {
+        console.warn("[Spend] Could not check for duplicate expense:", e.message);
+      }
+      if (existing) {
+        replaceExpense(item.id, existing);
+        changed = true;
+        continue;
+      }
+
+      const created = await withTimeout(
+        window.SpendData.insert(currentUser.id, expensePayload(item)),
+        NETWORK_TIMEOUT_MS,
+        "Save"
+      );
+      replaceExpense(item.id, created);
+      if (cloudRows) cloudRows.push(created);
       changed = true;
     } catch (e) {
       console.warn("[Spend] Could not sync pending expense:", e.message);
@@ -478,9 +549,14 @@ async function syncPendingToCloud() {
 async function refreshFromCloud() {
   if (!useCloud() || !isOnline()) return false;
   try {
-    await window.SpendAuth.ensureReady();
-    const rows = await window.SpendData.fetchAll(currentUser.id);
-    expenses = rows;
+    await withTimeout(window.SpendAuth.ensureReady(), NETWORK_TIMEOUT_MS, "Auth");
+    const rows = await withTimeout(
+      window.SpendData.fetchAll(currentUser.id),
+      NETWORK_TIMEOUT_MS,
+      "Cloud fetch"
+    );
+    const pending = expenses.filter(isPendingExpense);
+    expenses = mergeCloudAndLocal(rows, pending);
     save();
     return true;
   } catch (e) {
@@ -489,15 +565,34 @@ async function refreshFromCloud() {
   }
 }
 
+function loadLocalExpenses() {
+  expenses = [];
+  load();
+  syncUidFromExpenses();
+}
+
+function applyLocalUserState() {
+  loadLocalExpenses();
+  if (!currentUser) return;
+  const localCats = readLocalCategories(currentUser.id);
+  if (localCats?.length) {
+    categories = ensureUniqueCategory(localCats);
+    const groceriesLocal = categories.find((c) => c.id === "groceries");
+    if (groceriesLocal?.fixed) groceriesLocal.fixed = false;
+  }
+  const localSettings = readLocalSettings(currentUser.id);
+  if (localSettings && localSettings.variableBudget > 0) {
+    variableBudget = localSettings.variableBudget;
+  }
+}
+
 async function hydrateExpenses() {
   if (!useCloud()) {
-    expenses = [];
-    load();
-    syncUidFromExpenses();
+    loadLocalExpenses();
     return;
   }
 
-  const local = readLocalExpenses();
+  const local = expenses.length ? expenses.slice() : readLocalExpenses();
   let cloudRows = [];
 
   if (isOnline()) {
@@ -509,13 +604,9 @@ async function hydrateExpenses() {
   }
 
   expenses = mergeCloudAndLocal(cloudRows, local);
-
   syncUidFromExpenses();
 
-  if (isOnline()) {
-    const synced = await syncPendingToCloud();
-    if (synced) await refreshFromCloud();
-  }
+  if (isOnline()) await syncPendingToCloud();
 
   save();
 }
@@ -563,6 +654,13 @@ function refreshSyncStatus() {
   }
 }
 
+function repaintExpenseScreens() {
+  refreshSyncStatus();
+  if (currentScreen === "home") renderHome();
+  else if (currentScreen === "list") renderList();
+  else if (currentScreen === "analyse") renderAnalyse();
+}
+
 function offlineSaveToast() {
   const n = pendingCount();
   const waiting =
@@ -583,11 +681,8 @@ function wireOnlineSync() {
       if (synced) {
         await refreshFromCloud();
         showToast("All caught up — offline expenses synced.");
-        if (currentScreen === "home") renderHome();
-        if (currentScreen === "list") renderList();
-        if (currentScreen === "analyse") renderAnalyse();
       }
-      refreshSyncStatus();
+      repaintExpenseScreens();
     })();
   });
 
@@ -825,6 +920,7 @@ let openRow = null;
 let editingId = null;
 let appReady = false;
 let enterAppRunning = false;
+let commitAddRunning = false;
 const now = new Date();
 let viewMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 const draft = { amount: 0, cat: null, note: "", day: todayStr() };
@@ -1063,64 +1159,69 @@ function openEdit(id) {
   document.getElementById("saveBtn").textContent = "Save changes";
   openEditor();
 }
+function queuePendingSync() {
+  if (!useCloud()) return;
+  if (!isOnline()) {
+    offlineSaveToast();
+    return;
+  }
+  void syncPendingToCloud()
+    .then(() => {
+      repaintExpenseScreens();
+      if (pendingCount()) offlineSaveToast();
+    })
+    .catch(() => {
+      if (pendingCount()) offlineSaveToast();
+    });
+}
+
 async function commitAdd() {
+  if (commitAddRunning) return;
   refreshSave();
   if (!(draft.amount > 0 && draft.cat)) return;
 
+  const btn = document.getElementById("saveBtn");
+  commitAddRunning = true;
+  if (btn) btn.disabled = true;
+
+  const date = stampFor(draft.day);
   const payload = {
     cat: draft.cat,
     amount: Math.round(draft.amount * 100) / 100,
     note: document.getElementById("noteInput").value.trim(),
-    date: stampFor(draft.day),
+    date,
+    fxRate: window.SpendRates.snapshotFor(date),
   };
-
-  await window.SpendRates.ensureForDate(payload.date).catch(() => {});
-  payload.fxRate = window.SpendRates.snapshotFor(payload.date);
-
-  const btn = document.getElementById("saveBtn");
-  btn.disabled = true;
 
   try {
     if (editingId) {
       const e = expenses.find((x) => x.id === editingId);
       if (!e) return;
-      if (useCloud() && isOnline() && isCloudId(editingId)) {
-        const updated = await window.SpendData.update(editingId, payload);
-        Object.assign(e, updated);
-        save();
-      } else if (useCloud()) {
-        Object.assign(e, payload, { _pending: true });
-        save();
-        offlineSaveToast();
-      } else {
-        Object.assign(e, payload);
-        save();
-      }
+      Object.assign(e, payload);
+      if (useCloud()) e._pending = true;
+      save();
       editingId = null;
       showScreen("list");
       renderHome();
       refreshSyncStatus();
     } else {
-      if (useCloud() && isOnline()) {
-        const created = await window.SpendData.insert(currentUser.id, payload);
-        expenses.push(created);
-        save();
-      } else if (useCloud()) {
-        expenses.push(Object.assign({ id: makeLocalId(), _pending: true }, payload));
-        save();
-        offlineSaveToast();
-      } else {
-        expenses.push(Object.assign({ id: nid() }, payload));
-        save();
-      }
+      const item = useCloud()
+        ? Object.assign({ id: makeLocalId(), _pending: true }, payload)
+        : Object.assign({ id: nid() }, payload);
+      expenses.push(item);
+      save();
       showScreen("home");
       renderHome();
       renderList();
       refreshSyncStatus();
     }
+
+    void window.SpendRates.ensureForDate(date).catch(() => {});
+    queuePendingSync();
   } catch (err) {
     showToast(err.message || "Could not save expense. Check your connection.");
   } finally {
+    commitAddRunning = false;
     refreshSave();
   }
 }
@@ -1993,21 +2094,41 @@ function showAuthScreen() {
   clearAuthMessage();
 }
 
+function paintSignedInApp() {
+  document.getElementById("app").classList.remove("auth-mode");
+  paintIcons(document);
+  paintIcons(document.getElementById("monthSwitcher"));
+  showScreen("home");
+  appReady = true;
+  updateAccountMenu();
+  refreshSyncStatus();
+}
+
+async function syncCloudInBackground() {
+  if (!useCloud()) return;
+  try {
+    await hydrateExpenses();
+    repaintExpenseScreens();
+  } catch (e) {
+    console.warn("[Spend] Cloud sync failed:", e.message);
+    showToast("Using saved expenses. Cloud sync will retry.");
+    refreshSyncStatus();
+  }
+}
+
 async function enterApp(session) {
+  const user = session ? session.user : null;
+  if (appReady && currentUser && user && currentUser.id === user.id) return;
   if (enterAppRunning) return;
   enterAppRunning = true;
-  currentUser = session ? session.user : null;
+  currentUser = user;
   if (currentUser) setExpenseStoreKey(currentUser.id);
   setAppLoading(true);
   try {
-    await hydrateExpenses();
-    document.getElementById("app").classList.remove("auth-mode");
-    paintIcons(document);
-    paintIcons(document.getElementById("monthSwitcher"));
-    showScreen("home");
-    appReady = true;
-    updateAccountMenu();
-    refreshSyncStatus();
+    applyLocalUserState();
+    paintSignedInApp();
+    setAppLoading(false);
+    void syncCloudInBackground();
     void loadUserSettings(currentUser?.id)
       .then(() => loadCategories(currentUser?.id))
       .then(() => window.SpendRates.ensureForExpenses(expenses))
@@ -2017,8 +2138,18 @@ async function enterApp(session) {
       .catch((e) => console.warn("[Spend] Background sync:", e.message));
   } catch (err) {
     showToast(err.message || "Could not load your expenses.");
-    showAuthScreen();
-    appReady = false;
+    if (currentUser) {
+      try {
+        applyLocalUserState();
+        paintSignedInApp();
+      } catch (e) {
+        showAuthScreen();
+        appReady = false;
+      }
+    } else {
+      showAuthScreen();
+      appReady = false;
+    }
   } finally {
     setAppLoading(false);
     enterAppRunning = false;
@@ -2144,33 +2275,39 @@ async function bootstrap() {
     return;
   }
 
-  await new Promise((resolve) => {
-    let booted = false;
-    const start = (session) => {
-      if (booted) return;
-      booted = true;
-      resolve();
-      if (session) void enterApp(session);
-      else showAuthScreen();
-    };
-
-    const fallback = setTimeout(() => {
-      void window.SpendAuth.getSession().then(start);
-    }, 4000);
-
-    window.SpendAuth.onAuthStateChange((event, session) => {
-      if (event === "TOKEN_REFRESHED") return;
-      if (event === "INITIAL_SESSION") {
-        clearTimeout(fallback);
-        start(session);
-        return;
-      }
-      if (event === "SIGNED_IN") void enterApp(session);
-      if (!session && event === "SIGNED_OUT") showAuthScreen();
-    });
-  });
-
   registerServiceWorker();
+
+  let booted = false;
+  let fallback;
+  const start = (session) => {
+    if (booted) return;
+    booted = true;
+    clearTimeout(fallback);
+    if (session) void enterApp(session);
+    else showAuthScreen();
+  };
+
+  fallback = setTimeout(() => {
+    void withTimeout(window.SpendAuth.getSession(), NETWORK_TIMEOUT_MS, "Session")
+      .then(start)
+      .catch((err) => {
+        console.warn("[Spend] Session check failed:", err.message);
+        start(null);
+      });
+  }, 4000);
+
+  window.SpendAuth.onAuthStateChange((event, session) => {
+    if (event === "TOKEN_REFRESHED") return;
+    if (event === "INITIAL_SESSION") {
+      start(session);
+      return;
+    }
+    if (event === "SIGNED_IN") {
+      if (appReady && currentUser && session?.user?.id === currentUser.id) return;
+      void enterApp(session);
+    }
+    if (!session && event === "SIGNED_OUT") showAuthScreen();
+  });
 }
 
 /* ---------- events (delegated) ---------- */

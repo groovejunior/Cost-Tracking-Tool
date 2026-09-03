@@ -1,5 +1,15 @@
 "use strict";
 
+function withAuthTimeout(promise, label) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label + " timed out")), 5000);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Thin wrapper around Supabase Auth.
  * app.js calls these instead of talking to Supabase directly — keeps auth logic in one place.
@@ -13,7 +23,10 @@ const SpendAuth = {
   /** Validate the session with Supabase before reading protected data. */
   async ensureReady() {
     if (!this.isEnabled()) throw new Error("Auth is not available.");
-    const { data, error } = await window.spendSupabase.auth.getUser();
+    const { data, error } = await withAuthTimeout(
+      window.spendSupabase.auth.getUser(),
+      "Auth"
+    );
     if (error || !data.user) throw new Error("Session expired. Please sign in again.");
     return data.user;
   },
@@ -21,7 +34,10 @@ const SpendAuth = {
   /** Read the saved login session from the browser (if any). */
   async getSession() {
     if (!this.isEnabled()) return null;
-    const { data, error } = await window.spendSupabase.auth.getSession();
+    const { data, error } = await withAuthTimeout(
+      window.spendSupabase.auth.getSession(),
+      "Session"
+    );
     if (error) throw error;
     return data.session;
   },
