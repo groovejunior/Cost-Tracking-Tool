@@ -1,4 +1,4 @@
-const CACHE_NAME = "spend-v53";
+const CACHE_NAME = "spend-v54";
 const NETWORK_FIRST_TIMEOUT_MS = 3000;
 const ASSETS = [
   "./",

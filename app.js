@@ -807,9 +807,10 @@ function setAppLoading(loading) {
 const audFmt = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" });
 const eurFmt = new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR", minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const money = (n) => audFmt.format(n);
-/** EUR/AUD rate for one expense (saved snapshot, or lookup for that month). */
+/** EUR/AUD rate for one expense (monthly lock, then saved snapshot). */
 function expenseRate(e) {
-  return e.fxRate || window.SpendRates.rateFor(e.date);
+  const monthly = window.SpendRates.rateFor(e.date);
+  return monthly || e.fxRate;
 }
 /** EUR hint: round up to one decimal (e.g. €18.9). */
 function moneyEurAt(aud, rate) {

@@ -9,13 +9,14 @@
  *  3. Supabase fx_rates table — syncs across your devices
  *  4. Frankfurter API — fills in any month nobody has fetched yet
  *
- * Past months are fetched once and kept. The current month refreshes weekly
- * or when a new calendar month starts. Each expense also stores fxRate at save time.
+ * Each month locks to the rate on the 1st (or the last ECB day on/before it)
+ * and is never refreshed. July 2026 stays at the original 1.65. Each expense
+ * also stores fxRate at save time as an offline fallback.
  */
 const SpendRates = {
   STORAGE_KEY: "spend_fx_rates",
-  FETCH_KEY: "spend_fx_current_fetch", /* legacy — migrated into fetchedAt */
   DEFAULT_RATE: 1.65,
+  SEED_RATES: { "2026-07": 1.65 },
 
   rates: {},
   fetchedAt: {},
@@ -23,7 +24,10 @@ const SpendRates = {
   load() {
     try {
       const raw = localStorage.getItem(this.STORAGE_KEY);
-      if (!raw) return;
+      if (!raw) {
+        this._seedJulyLocal();
+        return;
+      }
       const parsed = JSON.parse(raw);
       if (parsed && parsed.rates) {
         this.rates = parsed.rates;
@@ -36,6 +40,7 @@ const SpendRates = {
       this.rates = {};
       this.fetchedAt = {};
     }
+    this._seedJulyLocal();
   },
 
   save() {
@@ -61,18 +66,35 @@ const SpendRates = {
     ]).finally(() => clearTimeout(timer));
   },
 
+  /** A month is locked only after a real persist (API, cloud, or seed). */
+  _hasLockedRate(monthKey) {
+    return !!(this.rates[monthKey] && this.fetchedAt[monthKey]);
+  },
+
+  _seedJulyLocal() {
+    const key = "2026-07";
+    if (this._hasLockedRate(key)) return;
+    this.rates[key] = this.SEED_RATES[key];
+    this.fetchedAt[key] = new Date().toISOString();
+    this.save();
+  },
+
   /** Pull the shared monthly table from Supabase into local cache. */
   async syncFromCloud() {
-    if (!this._cloudEnabled()) return;
+    if (!this._cloudEnabled()) return [];
     try {
       const rows = await this._timeout(window.SpendFxRates.fetchAll(), 5000, "FX sync");
-      rows.forEach((row) => {
+      const keys = [];
+      (rows || []).forEach((row) => {
         this.rates[row.month_key] = Number(row.eur_to_aud);
         this.fetchedAt[row.month_key] = row.fetched_at;
+        keys.push(row.month_key);
       });
       this.save();
+      return keys;
     } catch (e) {
       console.warn("[Spend] Could not sync FX rates from cloud:", e.message);
+      return [];
     }
   },
 
@@ -87,7 +109,8 @@ const SpendRates = {
   /** AUD per 1 EUR for the month of this date. */
   rateFor(isoOrDate) {
     const key = this.monthKey(isoOrDate);
-    return this.rates[key] || this.DEFAULT_RATE;
+    if (this._hasLockedRate(key)) return this.rates[key];
+    return this.DEFAULT_RATE;
   },
 
   audToEur(aud, rate) {
@@ -98,34 +121,11 @@ const SpendRates = {
     return this.monthKey(new Date());
   },
 
-  _isStale(date) {
-    const now = new Date();
-    if (date.getFullYear() !== now.getFullYear() || date.getMonth() !== now.getMonth()) return true;
-    return now - date > 7 * 86400000;
-  },
-
-  shouldRefreshCurrent(monthKey) {
-    if (monthKey !== this.currentMonthKey()) return false;
-    const last = this.fetchedAt[monthKey];
-    if (last) return this._isStale(new Date(last));
-    try {
-      const legacy = localStorage.getItem(this.FETCH_KEY);
-      if (legacy) return this._isStale(new Date(legacy));
-    } catch (e) {}
-    return true;
-  },
-
-  /** Pick a day Frankfurter is likely to have for that month. */
+  /** Always the 1st — Frankfurter returns the last ECB day on/before that date. */
   _queryDate(monthKey) {
     const [y, m] = monthKey.split("-").map(Number);
-    const now = new Date();
-    if (y === now.getFullYear() && m === now.getMonth() + 1) {
-      const d = String(now.getDate()).padStart(2, "0");
-      const mm = String(m).padStart(2, "0");
-      return `${y}-${mm}-${d}`;
-    }
     const mm = String(m).padStart(2, "0");
-    return `${y}-${mm}-15`;
+    return `${y}-${mm}-01`;
   },
 
   async persistMonth(monthKey, rate) {
@@ -143,7 +143,7 @@ const SpendRates = {
 
   async fetchMonth(monthKey) {
     const day = this._queryDate(monthKey);
-    const url = `https://api.frankfurter.app/${day}?from=EUR&to=AUD`;
+    const url = `https://api.frankfurter.dev/v1/${day}?from=EUR&to=AUD`;
     const res = await this._timeout(fetch(url), 5000, "FX fetch");
     if (!res.ok) throw new Error("Could not fetch exchange rate");
     const data = await res.json();
@@ -155,31 +155,45 @@ const SpendRates = {
   /**
    * Make sure we have rates for these months.
    * 1. Sync from Supabase (another device may already have them)
-   * 2. Fetch any still-missing months from Frankfurter → save local + cloud
+   * 2. Seed July 2026 at 1.65 if the cloud does not already have it
+   * 3. Fetch any still-unlocked months from Frankfurter → save local + cloud
    */
   async ensureMonths(monthKeys) {
-    await this.syncFromCloud();
+    const cloudKeys = await this.syncFromCloud();
+    const cloudSet = new Set(cloudKeys);
+    let updated = false;
+
+    for (const [key, rate] of Object.entries(this.SEED_RATES)) {
+      if (cloudSet.has(key)) continue;
+      if (!this._hasLockedRate(key)) {
+        await this.persistMonth(key, rate);
+        updated = true;
+      } else if (this._cloudEnabled()) {
+        try {
+          await window.SpendFxRates.upsert(key, this.rates[key]);
+        } catch (e) {
+          console.warn("[Spend] Could not save FX rate to cloud:", e.message);
+        }
+      }
+    }
 
     const unique = [...new Set(monthKeys)];
-    const current = this.currentMonthKey();
-    const need = [];
+    const need = unique.filter((key) => !this._hasLockedRate(key) && !this.SEED_RATES[key]);
 
-    unique.forEach((key) => {
-      if (!this.rates[key]) need.push(key);
-      else if (key === current && this.shouldRefreshCurrent(key)) need.push(key);
-    });
-
-    if (!need.length) return false;
+    if (!need.length) return updated;
 
     await Promise.all(
       need.map((key) =>
-        this.fetchMonth(key).catch(() => {
-          if (!this.rates[key]) this.rates[key] = this.DEFAULT_RATE;
-        })
+        this.fetchMonth(key)
+          .then(() => {
+            updated = true;
+          })
+          .catch((e) => {
+            console.warn("[Spend] Could not fetch FX rate for", key, e && e.message);
+          })
       )
     );
-    this.save();
-    return true;
+    return updated;
   },
 
   async ensureForDate(isoDate) {
