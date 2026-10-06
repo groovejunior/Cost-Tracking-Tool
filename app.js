@@ -388,7 +388,9 @@ function esc(s) {
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/"/g, "&quot;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function makeCatId(name) {
@@ -421,7 +423,7 @@ function readLocalExpenses() {
   }
 }
 
-const NETWORK_TIMEOUT_MS = 5000;
+const NETWORK_TIMEOUT_MS = 15000;
 
 function withTimeout(promise, ms = NETWORK_TIMEOUT_MS, label = "Request") {
   let timer;
@@ -864,11 +866,22 @@ function showToast(message) {
   }, 4500);
 }
 
+let loadHintTimer = null;
+
 function setAppLoading(loading) {
   const app = document.getElementById("app");
   const screen = document.getElementById("loadScreen");
+  const hint = document.getElementById("loadScreenHint");
   if (screen) screen.classList.toggle("is-hidden", !loading);
   if (app) app.setAttribute("aria-busy", loading ? "true" : "false");
+  clearTimeout(loadHintTimer);
+  if (hint) hint.hidden = true;
+  if (loading && hint) {
+    loadHintTimer = setTimeout(() => {
+      if (!screen || screen.classList.contains("is-hidden")) return;
+      hint.hidden = false;
+    }, 3000);
+  }
 }
 
 /* ---------- helpers ---------- */
@@ -949,7 +962,17 @@ function shiftViewMonth(delta) {
   const current = new Date(now.getFullYear(), now.getMonth(), 1);
   if (next > current) return;
   viewMonth = next;
+  viewMonthFollowsToday = next.getTime() === current.getTime();
   openRow = null;
+  refreshViewMonthScreens();
+}
+
+function refreshViewMonthIfFollowingToday() {
+  if (!viewMonthFollowsToday || !appReady) return;
+  const n = new Date();
+  const thisMonth = new Date(n.getFullYear(), n.getMonth(), 1);
+  if (viewMonth.getTime() === thisMonth.getTime()) return;
+  viewMonth = thisMonth;
   refreshViewMonthScreens();
 }
 function startDay(d) {
@@ -990,8 +1013,8 @@ let editingId = null;
 let appReady = false;
 let enterAppRunning = false;
 let commitAddRunning = false;
-const now = new Date();
-let viewMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+let viewMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let viewMonthFollowsToday = true;
 const draft = { amount: 0, cat: null, note: "", day: todayStr() };
 
 /* ---------- HOME ---------- */
@@ -1031,7 +1054,7 @@ function renderHome() {
       ({ c, sum }) => `
     <div class="catcard">
       <div class="dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
-      <div class="cn">${c.name}</div>
+      <div class="cn">${esc(c.name)}</div>
       <div class="cv">${moneyStack(sum, fx)}</div>
     </div>`
     )
@@ -1044,7 +1067,7 @@ function renderHome() {
         return `
     <div class="rowwrap"><div class="row">
       <div class="badge" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
-      <div class="rmid"><div class="t">${e.note || c.name}</div><div class="s">${c.name}</div></div>
+      <div class="rmid"><div class="t">${esc(e.note || c.name)}</div><div class="s">${esc(c.name)}</div></div>
       <div class="rright">${moneyStackExpense(e)}<div class="dt">${dayLabel(e.date)}</div></div>
     </div></div>`;
       })
@@ -1102,7 +1125,10 @@ function renderFilters() {
   if (filter !== "all" && !used.some((c) => c.id === filter)) filter = "all";
   const chips = [{ id: "all", name: "All" }, ...used];
   document.getElementById("filterChips").innerHTML = chips
-    .map((c) => `<button class="chip ${filter === c.id ? "active" : ""}" data-filter="${c.id}">${c.name}</button>`)
+    .map(
+      (c) =>
+        `<button class="chip ${filter === c.id ? "active" : ""}" data-filter="${esc(c.id)}">${esc(c.name)}</button>`
+    )
     .join("");
 }
 function renderList() {
@@ -1128,7 +1154,7 @@ function renderList() {
     if (monthItems.length && (q || filter !== "all")) {
       emptyMsg = q ? "No expenses match your search." : "No expenses in this category.";
     }
-    el.innerHTML = `<div class="empty">${emptyMsg}</div>`;
+    el.innerHTML = `<div class="empty">${esc(emptyMsg)}</div>`;
     return;
   }
 
@@ -1138,7 +1164,7 @@ function renderList() {
     const c = catById(e.cat);
     const dl = dayLabel(e.date);
     if (dl !== lastDay) {
-      html += `<div class="daygroup">${dl}</div>`;
+      html += `<div class="daygroup">${esc(dl)}</div>`;
       lastDay = dl;
     }
     const pending =
@@ -1146,14 +1172,14 @@ function renderList() {
         ? ` <span class="row-pending">· Unsynced</span>`
         : "";
     html += `
-      <div class="rowwrap list-row ${openRow === e.id ? "open" : ""}" data-row="${e.id}">
+      <div class="rowwrap list-row ${openRow === e.id ? "open" : ""}" data-row="${esc(e.id)}">
         <div class="actions">
-          <button class="act edit" data-edit="${e.id}"><span class="icon" data-ico="edit"></span>Edit</button>
-          <button class="act del" data-del="${e.id}"><span class="icon" data-ico="trash"></span>Delete</button>
+          <button class="act edit" data-edit="${esc(e.id)}"><span class="icon" data-ico="edit"></span>Edit</button>
+          <button class="act del" data-del="${esc(e.id)}"><span class="icon" data-ico="trash"></span>Delete</button>
         </div>
         <div class="row">
-          <div class="badge" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
-          <div class="rmid"><div class="t">${e.note || c.name}</div><div class="s">${c.name}${pending}</div></div>
+          <div class="badge" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></div>
+          <div class="rmid"><div class="t">${esc(e.note || c.name)}</div><div class="s">${esc(c.name)}${pending}</div></div>
           <div class="rright">${moneyStackExpense(e)}</div>
         </div>
       </div>`;
@@ -1168,8 +1194,8 @@ function renderPicker() {
   document.getElementById("pickGrid").innerHTML = categories
     .map(
     (c) => `
-    <button class="pick ${draft.cat === c.id ? "sel" : ""}" data-cat="${c.id}">
-      <span class="pdot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>${c.name}
+    <button class="pick ${draft.cat === c.id ? "sel" : ""}" data-cat="${esc(c.id)}">
+      <span class="pdot" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></span>${esc(c.name)}
     </button>`
   ).join("");
   paintIcons(document.getElementById("pickGrid"));
@@ -1394,13 +1420,21 @@ function sumAmounts(items) {
 }
 
 function catBreakdownFor(items) {
-  return categories
+  const knownIds = new Set(categories.map((c) => c.id));
+  const rows = categories
     .map((c) => ({
       c,
       sum: sumAmounts(items.filter((e) => e.cat === c.id)),
     }))
-    .filter((x) => x.sum > 0)
-    .sort((a, b) => b.sum - a.sum);
+    .filter((x) => x.sum > 0);
+  const orphan = sumAmounts(items.filter((e) => !knownIds.has(e.cat)));
+  if (orphan > 0) {
+    rows.push({
+      c: { id: "_deleted", name: "Other", color: "#726D64", icon: "dots", fixed: false, oneOff: false },
+      sum: orphan,
+    });
+  }
+  return rows.sort((a, b) => b.sum - a.sum);
 }
 
 function analyseMonthStats(monthDate) {
@@ -2252,10 +2286,59 @@ function setAuthToggleLabel(mode) {
 
 function setAuthMode(mode) {
   authMode = mode;
-  document.getElementById("authSubmit").textContent = mode === "signin" ? "Sign in" : "Create account";
-  setAuthToggleLabel(mode);
-  document.getElementById("authPassword").autocomplete = mode === "signin" ? "current-password" : "new-password";
+  const toggle = document.getElementById("authToggle");
+  const forgotWrap = document.getElementById("authForgotWrap");
+  const pwdField = document.getElementById("authPasswordField");
+  const newPwdField = document.getElementById("authNewPasswordField");
+  const backBtn = document.getElementById("authBackToSignIn");
+  const resendBtn = document.getElementById("authResendBtn");
+  const pwdInput = document.getElementById("authPassword");
+  const newPwdInput = document.getElementById("authNewPassword");
+  const submit = document.getElementById("authSubmit");
+
+  if (pwdField) pwdField.hidden = mode === "forgot" || mode === "recovery";
+  if (newPwdField) newPwdField.hidden = mode !== "recovery";
+  if (forgotWrap) forgotWrap.hidden = mode !== "signin";
+  if (toggle) toggle.hidden = mode === "forgot" || mode === "recovery";
+  if (backBtn) backBtn.hidden = mode !== "forgot" && mode !== "recovery";
+  if (resendBtn) resendBtn.hidden = true;
+  if (pwdInput) pwdInput.required = mode === "signin" || mode === "signup";
+  if (newPwdInput) newPwdInput.required = mode === "recovery";
+
+  if (mode === "forgot") submit.textContent = "Send reset link";
+  else if (mode === "recovery") submit.textContent = "Save new password";
+  else if (mode === "signup") submit.textContent = "Create account";
+  else submit.textContent = "Sign in";
+
+  if (mode === "signin" || mode === "signup") {
+    setAuthToggleLabel(mode);
+    if (pwdInput) pwdInput.autocomplete = mode === "signin" ? "current-password" : "new-password";
+  }
   clearAuthMessage();
+}
+
+function friendlyAuthError(err) {
+  const msg = (err && err.message) || "";
+  if (/invalid login credentials/i.test(msg)) {
+    return "That email and password don't match. Try again or reset your password.";
+  }
+  if (/email not confirmed/i.test(msg)) {
+    return "Please confirm your email first. Check your inbox or resend the confirmation email.";
+  }
+  if (/timed out/i.test(msg) || /failed to fetch|network/i.test(msg)) {
+    return "Can't reach Spend right now. Check your connection and try again.";
+  }
+  if (/rate limit|too many requests|429/i.test(msg)) {
+    return "Too many emails just now. Please try again in a few minutes.";
+  }
+  return msg || "Something went wrong. Please try again.";
+}
+
+function showAuthResend(email) {
+  const btn = document.getElementById("authResendBtn");
+  if (!btn) return;
+  btn.hidden = false;
+  btn.dataset.email = email;
 }
 
 function showAuthMessage(text, type) {
@@ -2271,12 +2354,16 @@ function clearAuthMessage() {
 }
 
 function setAuthLoading(loading) {
-  document.getElementById("authSubmit").disabled = loading;
-  document.getElementById("authSubmit").textContent = loading
-    ? "Please wait…"
-    : authMode === "signin"
-      ? "Sign in"
-      : "Create account";
+  const submit = document.getElementById("authSubmit");
+  submit.disabled = loading;
+  if (loading) {
+    submit.textContent = "Please wait…";
+    return;
+  }
+  if (authMode === "forgot") submit.textContent = "Send reset link";
+  else if (authMode === "recovery") submit.textContent = "Save new password";
+  else if (authMode === "signup") submit.textContent = "Create account";
+  else submit.textContent = "Sign in";
 }
 
 async function handleAuthSubmit(e) {
@@ -2285,15 +2372,54 @@ async function handleAuthSubmit(e) {
 
   const email = document.getElementById("authEmail").value.trim();
   const password = document.getElementById("authPassword").value;
-  if (!email || password.length < 6) {
-    showAuthMessage("Enter a valid email and a password with at least 6 characters.", "error");
+  const newPassword = document.getElementById("authNewPassword").value;
+
+  if (!email) {
+    showAuthMessage("Enter your email address.", "error");
     return;
   }
 
   setAuthLoading(true);
   try {
+    if (authMode === "forgot") {
+      await window.SpendAuth.resetPasswordForEmail(email);
+      showAuthMessage(
+        "If an account exists for that email, a reset link is on its way. Check your inbox.",
+        "ok"
+      );
+      return;
+    }
+
+    if (authMode === "recovery") {
+      if (newPassword.length < 6) {
+        showAuthMessage("Enter a password with at least 6 characters.", "error");
+        return;
+      }
+      await window.SpendAuth.updatePassword(newPassword);
+      document.getElementById("authNewPassword").value = "";
+      showToast("Password updated.");
+      const session = await window.SpendAuth.getSession();
+      if (session) await enterApp(session);
+      else setAuthMode("signin");
+      return;
+    }
+
+    if (password.length < 6) {
+      showAuthMessage("Enter a valid email and a password with at least 6 characters.", "error");
+      return;
+    }
+
     if (authMode === "signup") {
       const data = await window.SpendAuth.signUp(email, password);
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        showAuthMessage(
+          "You already have an account with this email. Sign in or reset your password.",
+          "error"
+        );
+        setAuthMode("signin");
+        return;
+      }
+      document.getElementById("authPassword").value = "";
       if (data.session) {
         await enterApp(data.session);
       } else {
@@ -2305,7 +2431,9 @@ async function handleAuthSubmit(e) {
       await enterApp(data.session);
     }
   } catch (err) {
-    showAuthMessage(err.message || "Something went wrong. Please try again.", "error");
+    const friendly = friendlyAuthError(err);
+    showAuthMessage(friendly, "error");
+    if (/confirm your email/i.test(friendly)) showAuthResend(email);
   } finally {
     setAuthLoading(false);
   }
@@ -2315,7 +2443,7 @@ async function handleLogout() {
   try {
     await window.SpendAuth.signOut();
   } catch (err) {
-    showAuthMessage(err.message || "Could not sign out.", "error");
+    showToast(err.message || "Could not sign out.");
   }
 }
 
@@ -2324,6 +2452,33 @@ function wireAuthForm() {
   document.getElementById("authToggle").addEventListener("click", () => {
     setAuthMode(authMode === "signin" ? "signup" : "signin");
   });
+  const forgot = document.getElementById("authForgotLink");
+  if (forgot) {
+    forgot.addEventListener("click", () => setAuthMode("forgot"));
+  }
+  const back = document.getElementById("authBackToSignIn");
+  if (back) {
+    back.addEventListener("click", () => setAuthMode("signin"));
+  }
+  const resend = document.getElementById("authResendBtn");
+  if (resend) {
+    resend.addEventListener("click", async () => {
+      const email = resend.dataset.email || document.getElementById("authEmail").value.trim();
+      if (!email) {
+        showAuthMessage("Enter your email address first.", "error");
+        return;
+      }
+      setAuthLoading(true);
+      try {
+        await window.SpendAuth.resendSignup(email);
+        showAuthMessage("Confirmation email sent. Check your inbox.", "ok");
+      } catch (err) {
+        showAuthMessage(friendlyAuthError(err), "error");
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+  }
   const eye = document.getElementById("authPasswordToggle");
   if (eye) {
     eye.addEventListener("click", () => {
@@ -2376,8 +2531,17 @@ async function bootstrap() {
       });
   }, 4000);
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshViewMonthIfFollowingToday();
+  });
+
   window.SpendAuth.onAuthStateChange((event, session) => {
     if (event === "TOKEN_REFRESHED") return;
+    if (event === "PASSWORD_RECOVERY") {
+      showAuthScreen();
+      setAuthMode("recovery");
+      return;
+    }
     if (event === "INITIAL_SESSION") {
       start(session);
       return;
