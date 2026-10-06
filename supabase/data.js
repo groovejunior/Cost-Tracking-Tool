@@ -51,6 +51,9 @@ const SpendData = {
         .select(select)
         .eq("user_id", userId)
         .order("expense_date", { ascending: false })
+        // Many rows share a timestamp (past days are stamped 12:00); a unique
+        // tie-breaker keeps page boundaries stable so rows are not skipped.
+        .order("id", { ascending: true })
         .range(from, from + pageSize - 1);
       if (error) throw error;
       const chunk = data || [];
