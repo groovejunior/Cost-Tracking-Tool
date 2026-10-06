@@ -39,15 +39,25 @@ const SpendData = {
     return row;
   },
 
-  /** Load all expenses for the signed-in user, newest first. */
+  /** Load all expenses for the signed-in user, newest first (paginated past PostgREST max). */
   async fetchAll(userId) {
-    const { data, error } = await this._db()
-      .from("expenses")
-      .select("id, category_id, amount, note, expense_date, fx_rate")
-      .eq("user_id", userId)
-      .order("expense_date", { ascending: false });
-    if (error) throw error;
-    return (data || []).map((row) => this.rowToExpense(row));
+    const pageSize = 1000;
+    const select =
+      "id, category_id, amount, note, expense_date, fx_rate";
+    const rows = [];
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await this._db()
+        .from("expenses")
+        .select(select)
+        .eq("user_id", userId)
+        .order("expense_date", { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      const chunk = data || [];
+      rows.push(...chunk);
+      if (chunk.length < pageSize) break;
+    }
+    return rows.map((row) => this.rowToExpense(row));
   },
 
   /** Create one expense; returns the row with its new UUID. */
