@@ -461,6 +461,20 @@ function makeLocalId() {
   return "local_" + nid();
 }
 
+function makeExpenseId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return makeLocalId();
+}
+
+/** Supabase row id for a pending expense (assigns a stable UUID for legacy local_* rows). */
+function cloudExpenseId(item) {
+  if (isCloudId(item.id)) return item.id;
+  if (!item._cloudId) item._cloudId = makeExpenseId();
+  return item._cloudId;
+}
+
 function isPendingExpense(e) {
   return !!e._pending || !isCloudId(e.id);
 }
@@ -505,7 +519,6 @@ function mergeCloudAndLocal(cloudRows, local) {
       if (item._pending) byId.set(item.id, item);
       continue;
     }
-    if (isPendingExpense(item) && cloudRows.some((c) => expensesLookAlike(c, item))) continue;
     byId.set(item.id, item);
   }
   return [...byId.values()];
@@ -540,13 +553,21 @@ function replaceExpense(oldId, next) {
   else expenses.push(next);
 }
 
+let syncPendingInFlight = null;
+
 /** Upload local expenses that are not in the cloud yet.
  *  Pass { editsOnly: true } to push edits of existing cloud rows only.
- *  Brand-new local rows stay out of that pass so the merge's lookalike
- *  skip still runs before they are inserted. */
+ *  Brand-new local rows stay out of that pass until the full sync after merge. */
 async function syncPendingToCloud(options) {
   if (!useCloud() || !isOnline()) return false;
+  if (syncPendingInFlight) return syncPendingInFlight;
+  syncPendingInFlight = runSyncPendingToCloud(options).finally(() => {
+    syncPendingInFlight = null;
+  });
+  return syncPendingInFlight;
+}
 
+async function runSyncPendingToCloud(options) {
   const editsOnly = !!(options && options.editsOnly);
   const pending = pendingExpensesToSync(expenses, editsOnly);
   if (!pending.length && !readPendingDeletes().size) return false;
@@ -567,51 +588,16 @@ async function syncPendingToCloud(options) {
     }
   }
 
-  let cloudRows = null;
-  const getCloud = async () => {
-    if (!cloudRows) {
-      cloudRows = await withTimeout(
-        window.SpendData.fetchAll(currentUser.id),
-        NETWORK_TIMEOUT_MS,
-        "Cloud fetch"
-      );
-    }
-    return cloudRows;
-  };
-
   for (const item of pending) {
     try {
-      if (editsOnly && !isCloudId(item.id)) continue;
-      if (isCloudId(item.id)) {
-        const updated = await withTimeout(
-          window.SpendData.update(item.id, expensePayload(item)),
-          NETWORK_TIMEOUT_MS,
-          "Save"
-        );
-        replaceExpense(item.id, updated);
-        changed = true;
-        continue;
-      }
-
-      let existing = null;
-      try {
-        existing = (await getCloud()).find((c) => expensesLookAlike(c, item)) || null;
-      } catch (e) {
-        console.warn("[Spend] Could not check for duplicate expense:", e.message);
-      }
-      if (existing) {
-        replaceExpense(item.id, existing);
-        changed = true;
-        continue;
-      }
-
-      const created = await withTimeout(
-        window.SpendData.insert(currentUser.id, expensePayload(item)),
+      if (editsOnly && !isCloudId(item.id) && !item._cloudId) continue;
+      const rowId = cloudExpenseId(item);
+      const saved = await withTimeout(
+        window.SpendData.upsert(currentUser.id, rowId, expensePayload(item)),
         NETWORK_TIMEOUT_MS,
         "Save"
       );
-      replaceExpense(item.id, created);
-      if (cloudRows) cloudRows.push(created);
+      replaceExpense(item.id, saved);
       changed = true;
     } catch (e) {
       console.warn("[Spend] Could not sync pending expense:", e.message);
@@ -1298,7 +1284,7 @@ async function commitAdd() {
       refreshSyncStatus();
     } else {
       const item = useCloud()
-        ? Object.assign({ id: makeLocalId(), _pending: true }, payload)
+        ? Object.assign({ id: makeExpenseId(), _pending: true }, payload)
         : Object.assign({ id: nid() }, payload);
       expenses.push(item);
       save();

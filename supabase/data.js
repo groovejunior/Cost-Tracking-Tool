@@ -61,6 +61,18 @@ const SpendData = {
     return this.rowToExpense(data);
   },
 
+  /** Insert or update by id (idempotent retries for client-generated UUIDs). */
+  async upsert(userId, id, payload) {
+    const row = Object.assign({ id }, this._toRow(userId, payload));
+    const { data, error } = await this._db()
+      .from("expenses")
+      .upsert(row, { onConflict: "id" })
+      .select("id, category_id, amount, note, expense_date, fx_rate")
+      .single();
+    if (error) throw error;
+    return this.rowToExpense(data);
+  },
+
   /** Update an existing expense by UUID. */
   async update(id, payload) {
     const { data, error } = await this._db()
