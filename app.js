@@ -1164,7 +1164,7 @@ function renderHome() {
     .map(
       ({ c, sum }) => `
     <div class="catcard">
-      <div class="dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
+      <div class="dot" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></div>
       <div class="cn">${esc(c.name)}</div>
       <div class="cv">${moneyStack(sum, fx)}</div>
     </div>`
@@ -1177,7 +1177,7 @@ function renderHome() {
         const c = catById(e.cat);
         return `
     <div class="rowwrap"><div class="row">
-      <div class="badge" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
+      <div class="badge" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></div>
       <div class="rmid"><div class="t">${esc(e.note || c.name)}</div><div class="s">${esc(c.name)}</div></div>
       <div class="rright">${moneyStackExpense(e)}<div class="dt">${dayLabel(e.date)}</div></div>
     </div></div>`;
@@ -1641,7 +1641,7 @@ function svgCategoryDonut(rows, total) {
   const segments = rows
     .map(({ c, sum }) => {
       const len = (sum / total) * circ;
-      const el = `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${c.color}" stroke-width="14"
+      const el = `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${esc(c.color)}" stroke-width="14"
         stroke-dasharray="${len.toFixed(2)} ${circ.toFixed(2)}"
         stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 50 50)"/>`;
       offset += len;
@@ -1686,7 +1686,7 @@ function renderCategoryLegend(rows, total) {
     .map(({ c, sum }) => {
       const pct = total > 0 ? Math.round((sum / total) * 100) : 0;
       return `<div class="an-legend-row">
-        <span class="an-swatch" style="background:${c.color}"></span>
+        <span class="an-swatch" style="background:${esc(c.color)}"></span>
         <span class="an-legend-name">${esc(c.name)}</span>
         <span class="tabular">${money(sum)} · ${pct}%</span>
       </div>`;
@@ -1910,7 +1910,7 @@ function renderCategoryRow(c) {
         ? '<span class="catlist-tag catlist-tag--unique">Unique</span>'
         : "";
   return `<button type="button" class="catlist-row" data-edit-cat="${esc(c.id)}">
-      <span class="catlist-dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>
+      <span class="catlist-dot" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></span>
       <span class="catlist-name">${esc(c.name)}</span>
       ${tag}
       <span class="icon catlist-chev" data-ico="chevronRight"></span>
@@ -1970,8 +1970,8 @@ function renderCatEditor() {
       </button>
     </div>
     <div class="cat-preview" id="catPreview">
-      <span class="cat-preview-dot" id="catPreviewDot" style="background:${color}">
-        <span class="icon" id="catPreviewIcon" data-ico="${icon}"></span>
+      <span class="cat-preview-dot" id="catPreviewDot" style="background:${esc(color)}">
+        <span class="icon" id="catPreviewIcon" data-ico="${esc(icon)}"></span>
       </span>
       <span class="cat-preview-name" id="catPreviewName">${esc(previewName)}</span>
     </div>
