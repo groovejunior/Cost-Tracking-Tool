@@ -1,14 +1,13 @@
 -- Spend bugfix hardening (run manually in Supabase SQL Editor)
 -- Safe to re-run: uses DROP IF EXISTS / CREATE OR REPLACE where applicable.
 -- App code works before and after; fx_rates writes fail gracefully once insert/update are revoked.
+-- Runs as one transaction: if any statement fails, nothing is changed.
+
+begin;
 
 -- ---------------------------------------------------------------------------
--- Advisor: callable trigger function should not be executable by clients
--- ---------------------------------------------------------------------------
-revoke execute on function public.spend_handle_new_user() from public, anon, authenticated;
-
--- ---------------------------------------------------------------------------
--- Advisor: immutable search_path on Spend trigger functions
+-- Advisor: immutable search_path on Spend trigger functions;
+-- callable trigger function should not be executable by clients
 -- ---------------------------------------------------------------------------
 create or replace function public.spend_set_updated_at()
 returns trigger
@@ -37,8 +36,18 @@ $$;
 
 revoke execute on function public.spend_handle_new_user() from public, anon, authenticated;
 
--- Optional: drop leftover generic helper if unused in this project
-drop function if exists public.set_updated_at();
+-- Leftover generic helper: drop it only if nothing (e.g. another app's trigger) still uses it.
+do $$
+begin
+  if to_regprocedure('public.set_updated_at()') is not null
+     and not exists (
+       select 1 from pg_depend
+       where refobjid = to_regprocedure('public.set_updated_at()') and deptype = 'n'
+     ) then
+    drop function public.set_updated_at();
+  end if;
+end;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- Advisor: RLS initplan — compare to (select auth.uid())
@@ -72,6 +81,7 @@ create policy "Users read own settings"
 drop policy if exists "Users insert own settings" on public.user_settings;
 create policy "Users insert own settings"
   on public.user_settings for insert
+  to authenticated
   with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users update own settings" on public.user_settings;
@@ -108,3 +118,5 @@ drop policy if exists "Authenticated insert fx rates" on public.fx_rates;
 drop policy if exists "Authenticated update fx rates" on public.fx_rates;
 
 -- Keep select policy as-is (authenticated users read shared rates).
+
+commit;
