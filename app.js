@@ -221,6 +221,43 @@ function setExpenseStoreKey(userId) {
   storeKey = userId ? "spend_v1_" + userId : "spend_v1";
 }
 
+function pendingDeletesKey(userId) {
+  return userId ? "spend_pending_deletes_" + userId : "spend_pending_deletes";
+}
+
+function readPendingDeletes() {
+  if (!currentUser) return new Set();
+  try {
+    const raw = localStorage.getItem(pendingDeletesKey(currentUser.id));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function writePendingDeletes(ids) {
+  if (!currentUser) return;
+  try {
+    localStorage.setItem(pendingDeletesKey(currentUser.id), JSON.stringify([...ids]));
+  } catch (e) {
+    console.warn("[Spend] Could not save pending deletes:", e && e.message);
+  }
+}
+
+function queuePendingDelete(id) {
+  if (!id || !isCloudId(id)) return;
+  const ids = readPendingDeletes();
+  ids.add(id);
+  writePendingDeletes(ids);
+}
+
+function clearPendingDelete(id) {
+  const ids = readPendingDeletes();
+  if (!ids.delete(id)) return;
+  writePendingDeletes(ids);
+}
+
 function settingsStoreKey(userId) {
   return userId ? "spend_settings_" + userId : "spend_settings";
 }
@@ -455,8 +492,11 @@ function expensesLookAlike(a, b) {
 }
 
 function mergeCloudAndLocal(cloudRows, local) {
-  const byId = new Map(cloudRows.map((e) => [e.id, e]));
+  const tombstones = readPendingDeletes();
+  const cloudFiltered = cloudRows.filter((e) => !tombstones.has(e.id));
+  const byId = new Map(cloudFiltered.map((e) => [e.id, e]));
   for (const item of local) {
+    if (tombstones.has(item.id)) continue;
     if (byId.has(item.id)) {
       // This id is already in the cloud. A non-pending local copy is just a
       // cache of that row, so the cloud copy wins (another device may be newer).
@@ -509,7 +549,23 @@ async function syncPendingToCloud(options) {
 
   const editsOnly = !!(options && options.editsOnly);
   const pending = pendingExpensesToSync(expenses, editsOnly);
-  if (!pending.length) return false;
+  if (!pending.length && !readPendingDeletes().size) return false;
+
+  let changed = false;
+  const tombstones = [...readPendingDeletes()];
+  for (const id of tombstones) {
+    if (!isCloudId(id)) {
+      clearPendingDelete(id);
+      continue;
+    }
+    try {
+      await withTimeout(window.SpendData.remove(id), NETWORK_TIMEOUT_MS, "Delete");
+      clearPendingDelete(id);
+      changed = true;
+    } catch (e) {
+      console.warn("[Spend] Could not sync pending delete:", e.message);
+    }
+  }
 
   let cloudRows = null;
   const getCloud = async () => {
@@ -523,7 +579,6 @@ async function syncPendingToCloud(options) {
     return cloudRows;
   };
 
-  let changed = false;
   for (const item of pending) {
     try {
       if (editsOnly && !isCloudId(item.id)) continue;
@@ -1292,8 +1347,19 @@ async function requestDeleteExpense(id) {
 
 async function deleteExpense(id) {
   try {
-    if (useCloud() && isOnline() && isCloudId(id)) {
-      await window.SpendData.remove(id);
+    if (useCloud() && isCloudId(id)) {
+      if (isOnline()) {
+        try {
+          await withTimeout(window.SpendData.remove(id), NETWORK_TIMEOUT_MS, "Delete");
+          clearPendingDelete(id);
+        } catch (err) {
+          queuePendingDelete(id);
+          offlineSaveToast();
+        }
+      } else {
+        queuePendingDelete(id);
+        offlineSaveToast();
+      }
     }
     expenses = expenses.filter((x) => x.id !== id);
     save();

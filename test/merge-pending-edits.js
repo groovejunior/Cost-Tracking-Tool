@@ -22,6 +22,7 @@ function extractBetween(startMarker, endMarker) {
 }
 
 const helpers = [
+  "function readPendingDeletes() { return new Set(); }",
   extractBetween("function isCloudId(", "function makeLocalId("),
   extractBetween("function isPendingExpense(", "function expensePayload("),
   extractBetween("function expensesLookAlike(", "function mergeCloudAndLocal("),
