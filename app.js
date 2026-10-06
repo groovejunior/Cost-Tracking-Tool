@@ -464,18 +464,55 @@ function makeLocalId() {
 }
 
 function makeExpenseId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
+  const c = typeof crypto !== "undefined" ? crypto : null;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  // iOS Safari < 15.4 has getRandomValues but no randomUUID.
+  if (c && typeof c.getRandomValues === "function") {
+    const b = c.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   }
   return makeLocalId();
 }
 
-/** Supabase row id for a pending expense (assigns a stable UUID for legacy local_* rows). */
+/** Supabase row id for an expense: its own UUID, or the one assigned to a legacy local_* row. */
 function cloudExpenseId(item) {
   if (isCloudId(item.id)) return item.id;
-  if (!item._cloudId) item._cloudId = makeExpenseId();
-  return item._cloudId;
+  return item._cloudId || null;
 }
+
+/**
+ * Older versions created offline expenses as local_* and relied on a
+ * lookalike check to spot inserts that committed before a timeout. Give each
+ * such row a cloud id once, before its first upload: adopt an identical cloud
+ * row this device has never seen (that earlier insert), else a fresh UUID.
+ * Persisted immediately so a reload mid-upload retries the same id.
+ */
+function assignLegacyCloudIds(cloudRows, local) {
+  const legacy = local.filter((e) => !isCloudId(e.id) && !e._cloudId);
+  if (!legacy.length) return;
+  const known = new Set(local.map((e) => e.id));
+  const claimed = new Set();
+  for (const item of legacy) {
+    const match = cloudRows.find(
+      (c) =>
+        !known.has(c.id) &&
+        !claimed.has(c.id) &&
+        c.cat === item.cat &&
+        Number(c.amount) === Number(item.amount) &&
+        (c.note || "") === (item.note || "") &&
+        c.date === item.date
+    );
+    item._cloudId = match ? match.id : makeExpenseId();
+    if (match) claimed.add(match.id);
+  }
+  save();
+}
+
+/** Ids deleted in this session; a cloud fetch that started before the delete must not bring them back. */
+const deletedThisSession = new Set();
 
 function isPendingExpense(e) {
   return !!e._pending || !isCloudId(e.id);
@@ -498,12 +535,20 @@ function syncUidFromExpenses() {
   });
 }
 
-function mergeCloudAndLocal(cloudRows, local) {
+/**
+ * syncedBefore: ids that were synced (not pending) when the cloud fetch
+ * started. Those rows missing from the fetch were deleted on another device.
+ */
+function mergeCloudAndLocal(cloudRows, local, syncedBefore) {
   const tombstones = readPendingDeletes();
-  const cloudFiltered = cloudRows.filter((e) => !tombstones.has(e.id));
+  const gone = (id) => tombstones.has(id) || deletedThisSession.has(id);
+  const cloudFiltered = cloudRows.filter((e) => !gone(e.id));
   const byId = new Map(cloudFiltered.map((e) => [e.id, e]));
   for (const item of local) {
-    if (tombstones.has(item.id)) continue;
+    if (gone(item.id)) continue;
+    if (item._cloudId && byId.has(item._cloudId)) {
+      byId.delete(item._cloudId);
+    }
     if (byId.has(item.id)) {
       // This id is already in the cloud. A non-pending local copy is just a
       // cache of that row, so the cloud copy wins (another device may be newer).
@@ -512,9 +557,14 @@ function mergeCloudAndLocal(cloudRows, local) {
       if (item._pending) byId.set(item.id, item);
       continue;
     }
+    if (syncedBefore && syncedBefore.has(item.id) && !isPendingExpense(item)) continue;
     byId.set(item.id, item);
   }
   return [...byId.values()];
+}
+
+function syncedExpenseIds() {
+  return new Set(expenses.filter((e) => !isPendingExpense(e)).map((e) => e.id));
 }
 
 /** Pending rows to upload. editsOnly limits this to edits of existing cloud rows. */
@@ -540,64 +590,113 @@ async function fetchCloudExpenses(userId) {
   throw lastErr;
 }
 
+/** Swap in the saved cloud row. Returns false when the local item no longer exists. */
 function replaceExpense(oldId, next) {
   const i = expenses.findIndex((e) => e.id === oldId);
-  if (i !== -1) expenses[i] = next;
-  else expenses.push(next);
+  if (i === -1) return false;
+  expenses[i] = next;
+  expenses = expenses.filter((e, j) => j === i || e.id !== next.id);
+  return true;
 }
 
 let syncPendingInFlight = null;
+let syncPendingRerun = null;
 
 /** Upload local expenses that are not in the cloud yet.
  *  Pass { editsOnly: true } to push edits of existing cloud rows only.
- *  Brand-new local rows stay out of that pass until the full sync after merge. */
+ *  Brand-new local rows stay out of that pass until the full sync after merge.
+ *  Calls made while a sync is running get one full sync queued behind it. */
 async function syncPendingToCloud(options) {
   if (!useCloud() || !isOnline()) return false;
-  if (syncPendingInFlight) return syncPendingInFlight;
+  if (syncPendingInFlight) {
+    if (!syncPendingRerun) {
+      const again = () => {
+        syncPendingRerun = null;
+        return syncPendingToCloud();
+      };
+      syncPendingRerun = syncPendingInFlight.then(again, again);
+    }
+    return syncPendingRerun;
+  }
   syncPendingInFlight = runSyncPendingToCloud(options).finally(() => {
     syncPendingInFlight = null;
   });
   return syncPendingInFlight;
 }
 
-async function runSyncPendingToCloud(options) {
-  const editsOnly = !!(options && options.editsOnly);
-  const pending = pendingExpensesToSync(expenses, editsOnly);
-  if (!pending.length && !readPendingDeletes().size) return false;
-
+async function pushPendingDeletes(userId) {
   let changed = false;
-  const tombstones = [...readPendingDeletes()];
-  for (const id of tombstones) {
+  for (const id of [...readPendingDeletes()]) {
     if (!isCloudId(id)) {
       clearPendingDelete(id);
       continue;
     }
     try {
       await withTimeout(window.SpendData.remove(id), NETWORK_TIMEOUT_MS, "Delete");
+      if (currentUser?.id !== userId) return changed;
       clearPendingDelete(id);
       changed = true;
     } catch (e) {
       console.warn("[Spend] Could not sync pending delete:", e.message);
     }
   }
+  return changed;
+}
 
-  for (const item of pending) {
+async function runSyncPendingToCloud(options) {
+  const editsOnly = !!(options && options.editsOnly);
+  const userId = currentUser.id;
+  const sameUser = () => currentUser?.id === userId;
+  let pending = pendingExpensesToSync(expenses, editsOnly);
+  if (!pending.length && !readPendingDeletes().size) return false;
+
+  let changed = await pushPendingDeletes(userId);
+  if (!sameUser()) return changed;
+
+  if (!editsOnly && pending.some((e) => !cloudExpenseId(e))) {
     try {
-      if (editsOnly && !isCloudId(item.id) && !item._cloudId) continue;
-      const rowId = cloudExpenseId(item);
-      const saved = await withTimeout(
-        window.SpendData.upsert(currentUser.id, rowId, expensePayload(item)),
-        NETWORK_TIMEOUT_MS,
-        "Save"
-      );
-      replaceExpense(item.id, saved);
-      changed = true;
+      const rows = await withTimeout(window.SpendData.fetchAll(userId), NETWORK_TIMEOUT_MS, "Cloud fetch");
+      if (!sameUser()) return changed;
+      assignLegacyCloudIds(rows, expenses);
     } catch (e) {
-      console.warn("[Spend] Could not sync pending expense:", e.message);
+      console.warn("[Spend] Could not check older offline expenses:", e.message);
     }
   }
 
-  if (changed) save();
+  for (let pass = 0; pass < 2 && pending.length; pass++) {
+    const editedMidUpload = [];
+    for (const item of pending) {
+      const rowId = cloudExpenseId(item);
+      if (!rowId) continue;
+      const sent = expensePayload(item);
+      try {
+        const saved = await withTimeout(
+          window.SpendData.upsert(userId, rowId, sent),
+          NETWORK_TIMEOUT_MS,
+          "Save"
+        );
+        if (!sameUser()) return changed;
+        const current = expenses.find((e) => e.id === item.id);
+        if (!current) {
+          // Deleted while uploading; the upsert may have landed after the delete.
+          queuePendingDelete(rowId);
+          continue;
+        }
+        if (JSON.stringify(expensePayload(current)) !== JSON.stringify(sent)) {
+          editedMidUpload.push(current);
+          continue;
+        }
+        replaceExpense(item.id, saved);
+        changed = true;
+      } catch (e) {
+        console.warn("[Spend] Could not sync pending expense:", e.message);
+      }
+    }
+    pending = editedMidUpload;
+  }
+
+  if (readPendingDeletes().size) changed = (await pushPendingDeletes(userId)) || changed;
+  if (changed && sameUser()) save();
   return changed;
 }
 
@@ -608,13 +707,16 @@ async function refreshFromCloud() {
     // overwrite them. If the push fails, the merge below still keeps them.
     await syncPendingToCloud({ editsOnly: true });
     await withTimeout(window.SpendAuth.ensureReady(), NETWORK_TIMEOUT_MS, "Auth");
+    const userId = currentUser.id;
+    const syncedBefore = syncedExpenseIds();
     const rows = await withTimeout(
-      window.SpendData.fetchAll(currentUser.id),
+      window.SpendData.fetchAll(userId),
       NETWORK_TIMEOUT_MS,
       "Cloud fetch"
     );
-    const pending = expenses.filter(isPendingExpense);
-    expenses = mergeCloudAndLocal(rows, pending);
+    if (currentUser?.id !== userId) return false;
+    assignLegacyCloudIds(rows, expenses);
+    expenses = mergeCloudAndLocal(rows, expenses, syncedBefore);
     save();
     return true;
   } catch (e) {
@@ -662,23 +764,32 @@ async function hydrateExpenses() {
     }
   }
 
-  const local = expenses.length ? expenses.slice() : readLocalExpenses();
-  let cloudRows = [];
+  if (!useCloud()) return;
+  const userId = currentUser.id;
+  if (!expenses.length) expenses = readLocalExpenses();
+  const syncedBefore = syncedExpenseIds();
+  let cloudRows = null;
 
   if (isOnline()) {
     try {
-      cloudRows = await fetchCloudExpenses(currentUser.id);
+      cloudRows = await fetchCloudExpenses(userId);
     } catch (e) {
       console.warn("[Spend] Cloud fetch failed:", e.message);
     }
   }
+  if (currentUser?.id !== userId) return;
 
-  expenses = mergeCloudAndLocal(cloudRows, local);
+  // Merge into the current list, not a pre-fetch copy: the user may have
+  // added, edited or deleted expenses while the fetch was in flight.
+  if (cloudRows) {
+    assignLegacyCloudIds(cloudRows, expenses);
+    expenses = mergeCloudAndLocal(cloudRows, expenses, syncedBefore);
+  }
   syncUidFromExpenses();
 
   if (isOnline()) await syncPendingToCloud();
 
-  save();
+  if (currentUser?.id === userId) save();
 }
 
 function pendingCount() {
@@ -1350,17 +1461,20 @@ async function requestDeleteExpense(id) {
 
 async function deleteExpense(id) {
   try {
-    if (useCloud() && isCloudId(id)) {
+    const item = expenses.find((x) => x.id === id);
+    const cloudId = item ? cloudExpenseId(item) : isCloudId(id) ? id : null;
+    if (useCloud() && cloudId) {
+      deletedThisSession.add(cloudId);
       if (isOnline()) {
         try {
-          await withTimeout(window.SpendData.remove(id), NETWORK_TIMEOUT_MS, "Delete");
-          clearPendingDelete(id);
+          await withTimeout(window.SpendData.remove(cloudId), NETWORK_TIMEOUT_MS, "Delete");
+          clearPendingDelete(cloudId);
         } catch (err) {
-          queuePendingDelete(id);
+          queuePendingDelete(cloudId);
           offlineSaveToast();
         }
       } else {
-        queuePendingDelete(id);
+        queuePendingDelete(cloudId);
         offlineSaveToast();
       }
     }
