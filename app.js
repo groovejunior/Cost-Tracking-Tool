@@ -221,6 +221,43 @@ function setExpenseStoreKey(userId) {
   storeKey = userId ? "spend_v1_" + userId : "spend_v1";
 }
 
+function pendingDeletesKey(userId) {
+  return userId ? "spend_pending_deletes_" + userId : "spend_pending_deletes";
+}
+
+function readPendingDeletes() {
+  if (!currentUser) return new Set();
+  try {
+    const raw = localStorage.getItem(pendingDeletesKey(currentUser.id));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function writePendingDeletes(ids) {
+  if (!currentUser) return;
+  try {
+    localStorage.setItem(pendingDeletesKey(currentUser.id), JSON.stringify([...ids]));
+  } catch (e) {
+    console.warn("[Spend] Could not save pending deletes:", e && e.message);
+  }
+}
+
+function queuePendingDelete(id) {
+  if (!id || !isCloudId(id)) return;
+  const ids = readPendingDeletes();
+  ids.add(id);
+  writePendingDeletes(ids);
+}
+
+function clearPendingDelete(id) {
+  const ids = readPendingDeletes();
+  if (!ids.delete(id)) return;
+  writePendingDeletes(ids);
+}
+
 function settingsStoreKey(userId) {
   return userId ? "spend_settings_" + userId : "spend_settings";
 }
@@ -351,7 +388,9 @@ function esc(s) {
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/"/g, "&quot;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function makeCatId(name) {
@@ -384,7 +423,7 @@ function readLocalExpenses() {
   }
 }
 
-const NETWORK_TIMEOUT_MS = 5000;
+const NETWORK_TIMEOUT_MS = 15000;
 
 function withTimeout(promise, ms = NETWORK_TIMEOUT_MS, label = "Request") {
   let timer;
@@ -424,6 +463,57 @@ function makeLocalId() {
   return "local_" + nid();
 }
 
+function makeExpenseId() {
+  const c = typeof crypto !== "undefined" ? crypto : null;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  // iOS Safari < 15.4 has getRandomValues but no randomUUID.
+  if (c && typeof c.getRandomValues === "function") {
+    const b = c.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  return makeLocalId();
+}
+
+/** Supabase row id for an expense: its own UUID, or the one assigned to a legacy local_* row. */
+function cloudExpenseId(item) {
+  if (isCloudId(item.id)) return item.id;
+  return item._cloudId || null;
+}
+
+/**
+ * Older versions created offline expenses as local_* and relied on a
+ * lookalike check to spot inserts that committed before a timeout. Give each
+ * such row a cloud id once, before its first upload: adopt an identical cloud
+ * row this device has never seen (that earlier insert), else a fresh UUID.
+ * Persisted immediately so a reload mid-upload retries the same id.
+ */
+function assignLegacyCloudIds(cloudRows, local) {
+  const legacy = local.filter((e) => !isCloudId(e.id) && !e._cloudId);
+  if (!legacy.length) return;
+  const known = new Set(local.map((e) => e.id));
+  const claimed = new Set();
+  for (const item of legacy) {
+    const match = cloudRows.find(
+      (c) =>
+        !known.has(c.id) &&
+        !claimed.has(c.id) &&
+        c.cat === item.cat &&
+        Number(c.amount) === Number(item.amount) &&
+        (c.note || "") === (item.note || "") &&
+        c.date === item.date
+    );
+    item._cloudId = match ? match.id : makeExpenseId();
+    if (match) claimed.add(match.id);
+  }
+  save();
+}
+
+/** Ids deleted in this session; a cloud fetch that started before the delete must not bring them back. */
+const deletedThisSession = new Set();
+
 function isPendingExpense(e) {
   return !!e._pending || !isCloudId(e.id);
 }
@@ -445,23 +535,45 @@ function syncUidFromExpenses() {
   });
 }
 
-function expensesLookAlike(a, b) {
-  return (
-    a.cat === b.cat &&
-    Number(a.amount) === Number(b.amount) &&
-    (a.note || "") === (b.note || "") &&
-    a.date === b.date
-  );
-}
-
-function mergeCloudAndLocal(cloudRows, local) {
-  const byId = new Map(cloudRows.map((e) => [e.id, e]));
+/**
+ * syncedBefore: ids that were synced (not pending) when the cloud fetch
+ * started. Those rows missing from the fetch were deleted on another device.
+ */
+function mergeCloudAndLocal(cloudRows, local, syncedBefore) {
+  const tombstones = readPendingDeletes();
+  const gone = (id) => tombstones.has(id) || deletedThisSession.has(id);
+  const cloudFiltered = cloudRows.filter((e) => !gone(e.id));
+  const byId = new Map(cloudFiltered.map((e) => [e.id, e]));
   for (const item of local) {
-    if (byId.has(item.id)) continue;
-    if (isPendingExpense(item) && cloudRows.some((c) => expensesLookAlike(c, item))) continue;
+    if (gone(item.id)) continue;
+    if (item._cloudId && byId.has(item._cloudId)) {
+      byId.delete(item._cloudId);
+    }
+    if (byId.has(item.id)) {
+      // This id is already in the cloud. A non-pending local copy is just a
+      // cache of that row, so the cloud copy wins (another device may be newer).
+      // A pending edit has not landed yet — the cloud row is the pre-edit
+      // version — so keep the local item until sync uploads it.
+      if (item._pending) byId.set(item.id, item);
+      continue;
+    }
+    if (syncedBefore && syncedBefore.has(item.id) && !isPendingExpense(item)) continue;
     byId.set(item.id, item);
   }
   return [...byId.values()];
+}
+
+function syncedExpenseIds() {
+  return new Set(expenses.filter((e) => !isPendingExpense(e)).map((e) => e.id));
+}
+
+/** Pending rows to upload. editsOnly limits this to edits of existing cloud rows. */
+function pendingExpensesToSync(list, editsOnly) {
+  return list.filter((e) => {
+    if (!isPendingExpense(e)) return false;
+    if (editsOnly) return !!(e._pending && isCloudId(e.id));
+    return true;
+  });
 }
 
 async function fetchCloudExpenses(userId) {
@@ -478,85 +590,133 @@ async function fetchCloudExpenses(userId) {
   throw lastErr;
 }
 
+/** Swap in the saved cloud row. Returns false when the local item no longer exists. */
 function replaceExpense(oldId, next) {
   const i = expenses.findIndex((e) => e.id === oldId);
-  if (i !== -1) expenses[i] = next;
-  else expenses.push(next);
+  if (i === -1) return false;
+  expenses[i] = next;
+  expenses = expenses.filter((e, j) => j === i || e.id !== next.id);
+  return true;
 }
 
-/** Upload local-only expenses that are not in the cloud yet. */
-async function syncPendingToCloud() {
+let syncPendingInFlight = null;
+let syncPendingRerun = null;
+
+/** Upload local expenses that are not in the cloud yet.
+ *  Pass { editsOnly: true } to push edits of existing cloud rows only.
+ *  Brand-new local rows stay out of that pass until the full sync after merge.
+ *  Calls made while a sync is running get one full sync queued behind it. */
+async function syncPendingToCloud(options) {
   if (!useCloud() || !isOnline()) return false;
-
-  const pending = expenses.filter(isPendingExpense);
-  if (!pending.length) return false;
-
-  let cloudRows = null;
-  const getCloud = async () => {
-    if (!cloudRows) {
-      cloudRows = await withTimeout(
-        window.SpendData.fetchAll(currentUser.id),
-        NETWORK_TIMEOUT_MS,
-        "Cloud fetch"
-      );
+  if (syncPendingInFlight) {
+    if (!syncPendingRerun) {
+      const again = () => {
+        syncPendingRerun = null;
+        return syncPendingToCloud();
+      };
+      syncPendingRerun = syncPendingInFlight.then(again, again);
     }
-    return cloudRows;
-  };
+    return syncPendingRerun;
+  }
+  syncPendingInFlight = runSyncPendingToCloud(options).finally(() => {
+    syncPendingInFlight = null;
+  });
+  return syncPendingInFlight;
+}
 
+async function pushPendingDeletes(userId) {
   let changed = false;
-  for (const item of pending) {
+  for (const id of [...readPendingDeletes()]) {
+    if (!isCloudId(id)) {
+      clearPendingDelete(id);
+      continue;
+    }
     try {
-      if (isCloudId(item.id)) {
-        const updated = await withTimeout(
-          window.SpendData.update(item.id, expensePayload(item)),
-          NETWORK_TIMEOUT_MS,
-          "Save"
-        );
-        replaceExpense(item.id, updated);
-        changed = true;
-        continue;
-      }
-
-      let existing = null;
-      try {
-        existing = (await getCloud()).find((c) => expensesLookAlike(c, item)) || null;
-      } catch (e) {
-        console.warn("[Spend] Could not check for duplicate expense:", e.message);
-      }
-      if (existing) {
-        replaceExpense(item.id, existing);
-        changed = true;
-        continue;
-      }
-
-      const created = await withTimeout(
-        window.SpendData.insert(currentUser.id, expensePayload(item)),
-        NETWORK_TIMEOUT_MS,
-        "Save"
-      );
-      replaceExpense(item.id, created);
-      if (cloudRows) cloudRows.push(created);
+      await withTimeout(window.SpendData.remove(id), NETWORK_TIMEOUT_MS, "Delete");
+      if (currentUser?.id !== userId) return changed;
+      clearPendingDelete(id);
       changed = true;
     } catch (e) {
-      console.warn("[Spend] Could not sync pending expense:", e.message);
+      console.warn("[Spend] Could not sync pending delete:", e.message);
+    }
+  }
+  return changed;
+}
+
+async function runSyncPendingToCloud(options) {
+  const editsOnly = !!(options && options.editsOnly);
+  const userId = currentUser.id;
+  const sameUser = () => currentUser?.id === userId;
+  let pending = pendingExpensesToSync(expenses, editsOnly);
+  if (!pending.length && !readPendingDeletes().size) return false;
+
+  let changed = await pushPendingDeletes(userId);
+  if (!sameUser()) return changed;
+
+  if (!editsOnly && pending.some((e) => !cloudExpenseId(e))) {
+    try {
+      const rows = await withTimeout(window.SpendData.fetchAll(userId), NETWORK_TIMEOUT_MS, "Cloud fetch");
+      if (!sameUser()) return changed;
+      assignLegacyCloudIds(rows, expenses);
+    } catch (e) {
+      console.warn("[Spend] Could not check older offline expenses:", e.message);
     }
   }
 
-  if (changed) save();
+  for (let pass = 0; pass < 2 && pending.length; pass++) {
+    const editedMidUpload = [];
+    for (const item of pending) {
+      const rowId = cloudExpenseId(item);
+      if (!rowId) continue;
+      const sent = expensePayload(item);
+      try {
+        const saved = await withTimeout(
+          window.SpendData.upsert(userId, rowId, sent),
+          NETWORK_TIMEOUT_MS,
+          "Save"
+        );
+        if (!sameUser()) return changed;
+        const current = expenses.find((e) => e.id === item.id);
+        if (!current) {
+          // Deleted while uploading; the upsert may have landed after the delete.
+          queuePendingDelete(rowId);
+          continue;
+        }
+        if (JSON.stringify(expensePayload(current)) !== JSON.stringify(sent)) {
+          editedMidUpload.push(current);
+          continue;
+        }
+        replaceExpense(item.id, saved);
+        changed = true;
+      } catch (e) {
+        console.warn("[Spend] Could not sync pending expense:", e.message);
+      }
+    }
+    pending = editedMidUpload;
+  }
+
+  if (readPendingDeletes().size) changed = (await pushPendingDeletes(userId)) || changed;
+  if (changed && sameUser()) save();
   return changed;
 }
 
 async function refreshFromCloud() {
   if (!useCloud() || !isOnline()) return false;
   try {
+    // Land unsynced edits before pulling, so a stale cloud row cannot
+    // overwrite them. If the push fails, the merge below still keeps them.
+    await syncPendingToCloud({ editsOnly: true });
     await withTimeout(window.SpendAuth.ensureReady(), NETWORK_TIMEOUT_MS, "Auth");
+    const userId = currentUser.id;
+    const syncedBefore = syncedExpenseIds();
     const rows = await withTimeout(
-      window.SpendData.fetchAll(currentUser.id),
+      window.SpendData.fetchAll(userId),
       NETWORK_TIMEOUT_MS,
       "Cloud fetch"
     );
-    const pending = expenses.filter(isPendingExpense);
-    expenses = mergeCloudAndLocal(rows, pending);
+    if (currentUser?.id !== userId) return false;
+    assignLegacyCloudIds(rows, expenses);
+    expenses = mergeCloudAndLocal(rows, expenses, syncedBefore);
     save();
     return true;
   } catch (e) {
@@ -592,23 +752,44 @@ async function hydrateExpenses() {
     return;
   }
 
-  const local = expenses.length ? expenses.slice() : readLocalExpenses();
-  let cloudRows = [];
+  // Push edits of rows that already exist in the cloud before we fetch.
+  // New local-only expenses are not included; the sync after the merge
+  // still uploads those. A failed push leaves _pending set, and the merge
+  // keeps that local edit instead of the stale cloud row.
+  if (isOnline()) {
+    try {
+      await syncPendingToCloud({ editsOnly: true });
+    } catch (e) {
+      console.warn("[Spend] Could not push pending edits:", e.message);
+    }
+  }
+
+  if (!useCloud()) return;
+  const userId = currentUser.id;
+  if (!expenses.length) expenses = readLocalExpenses();
+  const syncedBefore = syncedExpenseIds();
+  let cloudRows = null;
 
   if (isOnline()) {
     try {
-      cloudRows = await fetchCloudExpenses(currentUser.id);
+      cloudRows = await fetchCloudExpenses(userId);
     } catch (e) {
       console.warn("[Spend] Cloud fetch failed:", e.message);
     }
   }
+  if (currentUser?.id !== userId) return;
 
-  expenses = mergeCloudAndLocal(cloudRows, local);
+  // Merge into the current list, not a pre-fetch copy: the user may have
+  // added, edited or deleted expenses while the fetch was in flight.
+  if (cloudRows) {
+    assignLegacyCloudIds(cloudRows, expenses);
+    expenses = mergeCloudAndLocal(cloudRows, expenses, syncedBefore);
+  }
   syncUidFromExpenses();
 
   if (isOnline()) await syncPendingToCloud();
 
-  save();
+  if (currentUser?.id === userId) save();
 }
 
 function pendingCount() {
@@ -796,11 +977,22 @@ function showToast(message) {
   }, 4500);
 }
 
+let loadHintTimer = null;
+
 function setAppLoading(loading) {
   const app = document.getElementById("app");
   const screen = document.getElementById("loadScreen");
+  const hint = document.getElementById("loadScreenHint");
   if (screen) screen.classList.toggle("is-hidden", !loading);
   if (app) app.setAttribute("aria-busy", loading ? "true" : "false");
+  clearTimeout(loadHintTimer);
+  if (hint) hint.hidden = true;
+  if (loading && hint) {
+    loadHintTimer = setTimeout(() => {
+      if (!screen || screen.classList.contains("is-hidden")) return;
+      hint.hidden = false;
+    }, 3000);
+  }
 }
 
 /* ---------- helpers ---------- */
@@ -881,7 +1073,17 @@ function shiftViewMonth(delta) {
   const current = new Date(now.getFullYear(), now.getMonth(), 1);
   if (next > current) return;
   viewMonth = next;
+  viewMonthFollowsToday = next.getTime() === current.getTime();
   openRow = null;
+  refreshViewMonthScreens();
+}
+
+function refreshViewMonthIfFollowingToday() {
+  if (!viewMonthFollowsToday || !appReady) return;
+  const n = new Date();
+  const thisMonth = new Date(n.getFullYear(), n.getMonth(), 1);
+  if (viewMonth.getTime() === thisMonth.getTime()) return;
+  viewMonth = thisMonth;
   refreshViewMonthScreens();
 }
 function startDay(d) {
@@ -915,6 +1117,9 @@ function stampFor(dayStr) {
 let currentScreen = "home";
 let currentUser = null;
 let authMode = "signin";
+/** Opened from a password-reset email: ask for a new password before entering the app.
+ *  Read at load because supabase-js clears the hash once it has the session. */
+let passwordRecovery = /(^#|&)type=recovery(&|$)/.test(location.hash || "");
 let filter = "all";
 let listQuery = "";
 let openRow = null;
@@ -922,8 +1127,8 @@ let editingId = null;
 let appReady = false;
 let enterAppRunning = false;
 let commitAddRunning = false;
-const now = new Date();
-let viewMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+let viewMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let viewMonthFollowsToday = true;
 const draft = { amount: 0, cat: null, note: "", day: todayStr() };
 
 /* ---------- HOME ---------- */
@@ -962,8 +1167,8 @@ function renderHome() {
     .map(
       ({ c, sum }) => `
     <div class="catcard">
-      <div class="dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
-      <div class="cn">${c.name}</div>
+      <div class="dot" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></div>
+      <div class="cn">${esc(c.name)}</div>
       <div class="cv">${moneyStack(sum, fx)}</div>
     </div>`
     )
@@ -975,8 +1180,8 @@ function renderHome() {
         const c = catById(e.cat);
         return `
     <div class="rowwrap"><div class="row">
-      <div class="badge" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
-      <div class="rmid"><div class="t">${e.note || c.name}</div><div class="s">${c.name}</div></div>
+      <div class="badge" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></div>
+      <div class="rmid"><div class="t">${esc(e.note || c.name)}</div><div class="s">${esc(c.name)}</div></div>
       <div class="rright">${moneyStackExpense(e)}<div class="dt">${dayLabel(e.date)}</div></div>
     </div></div>`;
       })
@@ -1034,7 +1239,10 @@ function renderFilters() {
   if (filter !== "all" && !used.some((c) => c.id === filter)) filter = "all";
   const chips = [{ id: "all", name: "All" }, ...used];
   document.getElementById("filterChips").innerHTML = chips
-    .map((c) => `<button class="chip ${filter === c.id ? "active" : ""}" data-filter="${c.id}">${c.name}</button>`)
+    .map(
+      (c) =>
+        `<button class="chip ${filter === c.id ? "active" : ""}" data-filter="${esc(c.id)}">${esc(c.name)}</button>`
+    )
     .join("");
 }
 function renderList() {
@@ -1060,7 +1268,7 @@ function renderList() {
     if (monthItems.length && (q || filter !== "all")) {
       emptyMsg = q ? "No expenses match your search." : "No expenses in this category.";
     }
-    el.innerHTML = `<div class="empty">${emptyMsg}</div>`;
+    el.innerHTML = `<div class="empty">${esc(emptyMsg)}</div>`;
     return;
   }
 
@@ -1070,7 +1278,7 @@ function renderList() {
     const c = catById(e.cat);
     const dl = dayLabel(e.date);
     if (dl !== lastDay) {
-      html += `<div class="daygroup">${dl}</div>`;
+      html += `<div class="daygroup">${esc(dl)}</div>`;
       lastDay = dl;
     }
     const pending =
@@ -1078,14 +1286,14 @@ function renderList() {
         ? ` <span class="row-pending">· Unsynced</span>`
         : "";
     html += `
-      <div class="rowwrap list-row ${openRow === e.id ? "open" : ""}" data-row="${e.id}">
+      <div class="rowwrap list-row ${openRow === e.id ? "open" : ""}" data-row="${esc(e.id)}">
         <div class="actions">
-          <button class="act edit" data-edit="${e.id}"><span class="icon" data-ico="edit"></span>Edit</button>
-          <button class="act del" data-del="${e.id}"><span class="icon" data-ico="trash"></span>Delete</button>
+          <button class="act edit" data-edit="${esc(e.id)}"><span class="icon" data-ico="edit"></span>Edit</button>
+          <button class="act del" data-del="${esc(e.id)}"><span class="icon" data-ico="trash"></span>Delete</button>
         </div>
         <div class="row">
-          <div class="badge" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></div>
-          <div class="rmid"><div class="t">${e.note || c.name}</div><div class="s">${c.name}${pending}</div></div>
+          <div class="badge" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></div>
+          <div class="rmid"><div class="t">${esc(e.note || c.name)}</div><div class="s">${esc(c.name)}${pending}</div></div>
           <div class="rright">${moneyStackExpense(e)}</div>
         </div>
       </div>`;
@@ -1100,8 +1308,8 @@ function renderPicker() {
   document.getElementById("pickGrid").innerHTML = categories
     .map(
     (c) => `
-    <button class="pick ${draft.cat === c.id ? "sel" : ""}" data-cat="${c.id}">
-      <span class="pdot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>${c.name}
+    <button class="pick ${draft.cat === c.id ? "sel" : ""}" data-cat="${esc(c.id)}">
+      <span class="pdot" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></span>${esc(c.name)}
     </button>`
   ).join("");
   paintIcons(document.getElementById("pickGrid"));
@@ -1207,7 +1415,7 @@ async function commitAdd() {
       refreshSyncStatus();
     } else {
       const item = useCloud()
-        ? Object.assign({ id: makeLocalId(), _pending: true }, payload)
+        ? Object.assign({ id: makeExpenseId(), _pending: true }, payload)
         : Object.assign({ id: nid() }, payload);
       expenses.push(item);
       save();
@@ -1256,8 +1464,22 @@ async function requestDeleteExpense(id) {
 
 async function deleteExpense(id) {
   try {
-    if (useCloud() && isOnline() && isCloudId(id)) {
-      await window.SpendData.remove(id);
+    const item = expenses.find((x) => x.id === id);
+    const cloudId = item ? cloudExpenseId(item) : isCloudId(id) ? id : null;
+    if (useCloud() && cloudId) {
+      deletedThisSession.add(cloudId);
+      if (isOnline()) {
+        try {
+          await withTimeout(window.SpendData.remove(cloudId), NETWORK_TIMEOUT_MS, "Delete");
+          clearPendingDelete(cloudId);
+        } catch (err) {
+          queuePendingDelete(cloudId);
+          offlineSaveToast();
+        }
+      } else {
+        queuePendingDelete(cloudId);
+        offlineSaveToast();
+      }
     }
     expenses = expenses.filter((x) => x.id !== id);
     save();
@@ -1315,13 +1537,21 @@ function sumAmounts(items) {
 }
 
 function catBreakdownFor(items) {
-  return categories
+  const knownIds = new Set(categories.map((c) => c.id));
+  const rows = categories
     .map((c) => ({
       c,
       sum: sumAmounts(items.filter((e) => e.cat === c.id)),
     }))
-    .filter((x) => x.sum > 0)
-    .sort((a, b) => b.sum - a.sum);
+    .filter((x) => x.sum > 0);
+  const orphan = sumAmounts(items.filter((e) => !knownIds.has(e.cat)));
+  if (orphan > 0) {
+    rows.push({
+      c: { id: "_deleted", name: "Other", color: "#726D64", icon: "dots", fixed: false, oneOff: false },
+      sum: orphan,
+    });
+  }
+  return rows.sort((a, b) => b.sum - a.sum);
 }
 
 function analyseMonthStats(monthDate) {
@@ -1414,7 +1644,7 @@ function svgCategoryDonut(rows, total) {
   const segments = rows
     .map(({ c, sum }) => {
       const len = (sum / total) * circ;
-      const el = `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${c.color}" stroke-width="14"
+      const el = `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${esc(c.color)}" stroke-width="14"
         stroke-dasharray="${len.toFixed(2)} ${circ.toFixed(2)}"
         stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 50 50)"/>`;
       offset += len;
@@ -1459,7 +1689,7 @@ function renderCategoryLegend(rows, total) {
     .map(({ c, sum }) => {
       const pct = total > 0 ? Math.round((sum / total) * 100) : 0;
       return `<div class="an-legend-row">
-        <span class="an-swatch" style="background:${c.color}"></span>
+        <span class="an-swatch" style="background:${esc(c.color)}"></span>
         <span class="an-legend-name">${esc(c.name)}</span>
         <span class="tabular">${money(sum)} · ${pct}%</span>
       </div>`;
@@ -1683,7 +1913,7 @@ function renderCategoryRow(c) {
         ? '<span class="catlist-tag catlist-tag--unique">Unique</span>'
         : "";
   return `<button type="button" class="catlist-row" data-edit-cat="${esc(c.id)}">
-      <span class="catlist-dot" style="background:${c.color}"><span class="icon" data-ico="${c.icon}"></span></span>
+      <span class="catlist-dot" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></span>
       <span class="catlist-name">${esc(c.name)}</span>
       ${tag}
       <span class="icon catlist-chev" data-ico="chevronRight"></span>
@@ -1743,8 +1973,8 @@ function renderCatEditor() {
       </button>
     </div>
     <div class="cat-preview" id="catPreview">
-      <span class="cat-preview-dot" id="catPreviewDot" style="background:${color}">
-        <span class="icon" id="catPreviewIcon" data-ico="${icon}"></span>
+      <span class="cat-preview-dot" id="catPreviewDot" style="background:${esc(color)}">
+        <span class="icon" id="catPreviewIcon" data-ico="${esc(icon)}"></span>
       </span>
       <span class="cat-preview-name" id="catPreviewName">${esc(previewName)}</span>
     </div>
@@ -2173,10 +2403,61 @@ function setAuthToggleLabel(mode) {
 
 function setAuthMode(mode) {
   authMode = mode;
-  document.getElementById("authSubmit").textContent = mode === "signin" ? "Sign in" : "Create account";
-  setAuthToggleLabel(mode);
-  document.getElementById("authPassword").autocomplete = mode === "signin" ? "current-password" : "new-password";
+  const toggle = document.getElementById("authToggle");
+  const forgotWrap = document.getElementById("authForgotWrap");
+  const pwdField = document.getElementById("authPasswordField");
+  const newPwdField = document.getElementById("authNewPasswordField");
+  const backBtn = document.getElementById("authBackToSignIn");
+  const resendBtn = document.getElementById("authResendBtn");
+  const pwdInput = document.getElementById("authPassword");
+  const newPwdInput = document.getElementById("authNewPassword");
+  const submit = document.getElementById("authSubmit");
+  const emailField = document.getElementById("authEmail").closest(".field");
+
+  if (emailField) emailField.hidden = mode === "recovery";
+  if (pwdField) pwdField.hidden = mode === "forgot" || mode === "recovery";
+  if (newPwdField) newPwdField.hidden = mode !== "recovery";
+  if (forgotWrap) forgotWrap.hidden = mode !== "signin";
+  if (toggle) toggle.hidden = mode === "forgot" || mode === "recovery";
+  if (backBtn) backBtn.hidden = mode !== "forgot" && mode !== "recovery";
+  if (resendBtn) resendBtn.hidden = true;
+  if (pwdInput) pwdInput.required = mode === "signin" || mode === "signup";
+  if (newPwdInput) newPwdInput.required = mode === "recovery";
+
+  if (mode === "forgot") submit.textContent = "Send reset link";
+  else if (mode === "recovery") submit.textContent = "Save new password";
+  else if (mode === "signup") submit.textContent = "Create account";
+  else submit.textContent = "Sign in";
+
+  if (mode === "signin" || mode === "signup") {
+    setAuthToggleLabel(mode);
+    if (pwdInput) pwdInput.autocomplete = mode === "signin" ? "current-password" : "new-password";
+  }
   clearAuthMessage();
+}
+
+function friendlyAuthError(err) {
+  const msg = (err && err.message) || "";
+  if (/invalid login credentials/i.test(msg)) {
+    return "That email and password don't match. Try again or reset your password.";
+  }
+  if (/email not confirmed/i.test(msg)) {
+    return "Please confirm your email first. Check your inbox or resend the confirmation email.";
+  }
+  if (/timed out/i.test(msg) || /failed to fetch|load failed|network/i.test(msg)) {
+    return "Can't reach Spend right now. Check your connection and try again.";
+  }
+  if (/rate limit|too many requests|429/i.test(msg)) {
+    return "Too many emails just now. Please try again in a few minutes.";
+  }
+  return msg || "Something went wrong. Please try again.";
+}
+
+function showAuthResend(email) {
+  const btn = document.getElementById("authResendBtn");
+  if (!btn) return;
+  btn.hidden = false;
+  btn.dataset.email = email;
 }
 
 function showAuthMessage(text, type) {
@@ -2192,12 +2473,16 @@ function clearAuthMessage() {
 }
 
 function setAuthLoading(loading) {
-  document.getElementById("authSubmit").disabled = loading;
-  document.getElementById("authSubmit").textContent = loading
-    ? "Please wait…"
-    : authMode === "signin"
-      ? "Sign in"
-      : "Create account";
+  const submit = document.getElementById("authSubmit");
+  submit.disabled = loading;
+  if (loading) {
+    submit.textContent = "Please wait…";
+    return;
+  }
+  if (authMode === "forgot") submit.textContent = "Send reset link";
+  else if (authMode === "recovery") submit.textContent = "Save new password";
+  else if (authMode === "signup") submit.textContent = "Create account";
+  else submit.textContent = "Sign in";
 }
 
 async function handleAuthSubmit(e) {
@@ -2206,27 +2491,69 @@ async function handleAuthSubmit(e) {
 
   const email = document.getElementById("authEmail").value.trim();
   const password = document.getElementById("authPassword").value;
-  if (!email || password.length < 6) {
-    showAuthMessage("Enter a valid email and a password with at least 6 characters.", "error");
+  const newPassword = document.getElementById("authNewPassword").value;
+
+  if (!email && authMode !== "recovery") {
+    showAuthMessage("Enter your email address.", "error");
     return;
   }
 
   setAuthLoading(true);
   try {
+    if (authMode === "forgot") {
+      await window.SpendAuth.resetPasswordForEmail(email);
+      showAuthMessage(
+        "If an account exists for that email, a reset link is on its way. Check your inbox.",
+        "ok"
+      );
+      return;
+    }
+
+    if (authMode === "recovery") {
+      if (newPassword.length < 6) {
+        showAuthMessage("Enter a password with at least 6 characters.", "error");
+        return;
+      }
+      await window.SpendAuth.updatePassword(newPassword);
+      passwordRecovery = false;
+      document.getElementById("authNewPassword").value = "";
+      showToast("Password updated.");
+      const session = await window.SpendAuth.getSession();
+      if (session) await enterApp(session);
+      else setAuthMode("signin");
+      return;
+    }
+
+    if (password.length < 6) {
+      showAuthMessage("Enter a valid email and a password with at least 6 characters.", "error");
+      return;
+    }
+
     if (authMode === "signup") {
       const data = await window.SpendAuth.signUp(email, password);
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        setAuthMode("signin");
+        showAuthMessage(
+          "You already have an account with this email. Sign in or reset your password.",
+          "error"
+        );
+        return;
+      }
+      document.getElementById("authPassword").value = "";
       if (data.session) {
         await enterApp(data.session);
       } else {
-        showAuthMessage("Account created. Check your email to confirm, then sign in.", "ok");
         setAuthMode("signin");
+        showAuthMessage("Account created. Check your email to confirm, then sign in.", "ok");
       }
     } else {
       const data = await window.SpendAuth.signIn(email, password);
       await enterApp(data.session);
     }
   } catch (err) {
-    showAuthMessage(err.message || "Something went wrong. Please try again.", "error");
+    const friendly = friendlyAuthError(err);
+    showAuthMessage(friendly, "error");
+    if (/confirm your email/i.test(friendly)) showAuthResend(email);
   } finally {
     setAuthLoading(false);
   }
@@ -2236,7 +2563,7 @@ async function handleLogout() {
   try {
     await window.SpendAuth.signOut();
   } catch (err) {
-    showAuthMessage(err.message || "Could not sign out.", "error");
+    showToast(err.message || "Could not sign out.");
   }
 }
 
@@ -2245,6 +2572,33 @@ function wireAuthForm() {
   document.getElementById("authToggle").addEventListener("click", () => {
     setAuthMode(authMode === "signin" ? "signup" : "signin");
   });
+  const forgot = document.getElementById("authForgotLink");
+  if (forgot) {
+    forgot.addEventListener("click", () => setAuthMode("forgot"));
+  }
+  const back = document.getElementById("authBackToSignIn");
+  if (back) {
+    back.addEventListener("click", () => setAuthMode("signin"));
+  }
+  const resend = document.getElementById("authResendBtn");
+  if (resend) {
+    resend.addEventListener("click", async () => {
+      const email = resend.dataset.email || document.getElementById("authEmail").value.trim();
+      if (!email) {
+        showAuthMessage("Enter your email address first.", "error");
+        return;
+      }
+      setAuthLoading(true);
+      try {
+        await window.SpendAuth.resendSignup(email);
+        showAuthMessage("Confirmation email sent. Check your inbox.", "ok");
+      } catch (err) {
+        showAuthMessage(friendlyAuthError(err), "error");
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+  }
   const eye = document.getElementById("authPasswordToggle");
   if (eye) {
     eye.addEventListener("click", () => {
@@ -2284,8 +2638,13 @@ async function bootstrap() {
     if (booted) return;
     booted = true;
     clearTimeout(fallback);
-    if (session) void enterApp(session);
+    if (session && passwordRecovery) showRecoveryScreen();
+    else if (session) void enterApp(session);
     else showAuthScreen();
+  };
+  const showRecoveryScreen = () => {
+    showAuthScreen();
+    setAuthMode("recovery");
   };
 
   fallback = setTimeout(() => {
@@ -2297,13 +2656,25 @@ async function bootstrap() {
       });
   }, 4000);
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshViewMonthIfFollowingToday();
+  });
+
   window.SpendAuth.onAuthStateChange((event, session) => {
     if (event === "TOKEN_REFRESHED") return;
+    if (event === "PASSWORD_RECOVERY") {
+      passwordRecovery = true;
+      booted = true;
+      clearTimeout(fallback);
+      showRecoveryScreen();
+      return;
+    }
     if (event === "INITIAL_SESSION") {
       start(session);
       return;
     }
     if (event === "SIGNED_IN") {
+      if (passwordRecovery) return;
       if (appReady && currentUser && session?.user?.id === currentUser.id) return;
       void enterApp(session);
     }

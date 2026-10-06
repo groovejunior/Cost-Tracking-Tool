@@ -83,7 +83,7 @@ const SpendRates = {
   async syncFromCloud() {
     if (!this._cloudEnabled()) return [];
     try {
-      const rows = await this._timeout(window.SpendFxRates.fetchAll(), 5000, "FX sync");
+      const rows = await this._timeout(window.SpendFxRates.fetchAll(), 15000, "FX sync");
       const keys = [];
       (rows || []).forEach((row) => {
         this.rates[row.month_key] = Number(row.eur_to_aud);
@@ -144,7 +144,7 @@ const SpendRates = {
   async fetchMonth(monthKey) {
     const day = this._queryDate(monthKey);
     const url = `https://api.frankfurter.dev/v1/${day}?from=EUR&to=AUD`;
-    const res = await this._timeout(fetch(url), 5000, "FX fetch");
+    const res = await this._timeout(fetch(url), 15000, "FX fetch");
     if (!res.ok) throw new Error("Could not fetch exchange rate");
     const data = await res.json();
     const rate = data.rates && data.rates.AUD;

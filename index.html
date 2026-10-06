@@ -23,6 +23,7 @@
       <p class="brand-tagline">Track what matters</p>
     </div>
     <div class="load-screen-spinner" aria-hidden="true"></div>
+    <p class="load-screen-hint" id="loadScreenHint" hidden>Waking the server can take up to 15 seconds the first time today.</p>
   </div>
 
   <div class="account-menu" id="accountMenu" hidden>
@@ -84,8 +85,8 @@
                        placeholder="youremail@example.com">
               </div>
             </div>
-            <div class="field">
-              <label class="fl" for="authPassword">Password</label>
+            <div class="field" id="authPasswordField">
+              <label class="fl" for="authPassword" id="authPasswordLabel">Password</label>
               <div class="auth-input">
                 <span class="auth-input-ico" data-ico="lock" aria-hidden="true"></span>
                 <input class="noteinput" type="password" id="authPassword" autocomplete="current-password"
@@ -95,8 +96,21 @@
                 </button>
               </div>
             </div>
+            <div class="field" id="authNewPasswordField" hidden>
+              <label class="fl" for="authNewPassword">New password</label>
+              <div class="auth-input">
+                <span class="auth-input-ico" data-ico="lock" aria-hidden="true"></span>
+                <input class="noteinput" type="password" id="authNewPassword" autocomplete="new-password"
+                       minlength="6" placeholder="Choose a new password">
+              </div>
+            </div>
+            <p class="auth-forgot-wrap" id="authForgotWrap">
+              <button type="button" class="auth-forgot" id="authForgotLink">Forgot password?</button>
+            </p>
             <p class="auth-msg" id="authMsg" hidden></p>
             <button type="submit" class="savebtn" id="authSubmit">Sign in</button>
+            <button type="button" class="auth-forgot" id="authResendBtn" hidden>Resend confirmation email</button>
+            <button type="button" class="auth-back" id="authBackToSignIn" hidden>Back to sign in</button>
           </form>
           <button type="button" class="auth-toggle" id="authToggle">
             <span class="auth-toggle-lead">Need an account?</span>

@@ -1,11 +1,18 @@
 "use strict";
 
+const AUTH_TIMEOUT_MS = 15000;
+
+function authRedirectTo() {
+  if (typeof location === "undefined") return undefined;
+  return location.origin + location.pathname;
+}
+
 function withAuthTimeout(promise, label) {
   let timer;
   return Promise.race([
     Promise.resolve(promise),
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(label + " timed out")), 5000);
+      timer = setTimeout(() => reject(new Error(label + " timed out")), AUTH_TIMEOUT_MS);
     }),
   ]).finally(() => clearTimeout(timer));
 }
@@ -44,7 +51,11 @@ const SpendAuth = {
 
   /** Register a new account with email + password. */
   async signUp(email, password) {
-    const { data, error } = await window.spendSupabase.auth.signUp({ email, password });
+    const { data, error } = await window.spendSupabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: authRedirectTo() },
+    });
     if (error) throw error;
     return data;
   },
@@ -56,9 +67,33 @@ const SpendAuth = {
     return data;
   },
 
-  /** End the session and return to the login screen. */
+  /** Email a password reset link. */
+  async resetPasswordForEmail(email) {
+    const { error } = await window.spendSupabase.auth.resetPasswordForEmail(email, {
+      redirectTo: authRedirectTo(),
+    });
+    if (error) throw error;
+  },
+
+  /** Set a new password after opening the reset link (PASSWORD_RECOVERY session). */
+  async updatePassword(password) {
+    const { error } = await window.spendSupabase.auth.updateUser({ password });
+    if (error) throw error;
+  },
+
+  /** Resend the sign-up confirmation email. */
+  async resendSignup(email) {
+    const { error } = await window.spendSupabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: authRedirectTo() },
+    });
+    if (error) throw error;
+  },
+
+  /** End the session on this device only. */
   async signOut() {
-    const { error } = await window.spendSupabase.auth.signOut();
+    const { error } = await window.spendSupabase.auth.signOut({ scope: "local" });
     if (error) throw error;
   },
 

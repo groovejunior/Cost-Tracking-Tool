@@ -59,16 +59,24 @@ const SpendCategories = {
   /** Replace the user's full category list (expenses reference ids as plain text). */
   async saveAll(userId, list) {
     const db = this._db();
-    const { error: delErr } = await db.from("categories").delete().eq("user_id", userId);
-    if (delErr) throw delErr;
-    if (!list.length) return;
-    const rows = list.map((cat, i) => this._toRow(userId, cat, i));
-    let { error } = await db.from("categories").insert(rows);
-    if (error && /one_off/i.test(error.message || "")) {
-      const legacy = rows.map(({ one_off, ...rest }) => rest);
-      ({ error } = await db.from("categories").insert(legacy));
+    const keepIds = list.map((c) => c.id);
+    if (list.length) {
+      const rows = list.map((cat, i) => this._toRow(userId, cat, i));
+      let { error } = await db.from("categories").upsert(rows, { onConflict: "user_id,id" });
+      if (error && /one_off/i.test(error.message || "")) {
+        const legacy = rows.map(({ one_off, ...rest }) => rest);
+        ({ error } = await db.from("categories").upsert(legacy, { onConflict: "user_id,id" }));
+      }
+      if (error) throw error;
     }
-    if (error) throw error;
+    if (!keepIds.length) {
+      const { error: delAllErr } = await db.from("categories").delete().eq("user_id", userId);
+      if (delAllErr) throw delAllErr;
+      return;
+    }
+    const inList = "(" + keepIds.map((id) => `"${String(id).replace(/"/g, "")}"`).join(",") + ")";
+    const { error: delErr } = await db.from("categories").delete().eq("user_id", userId).not("id", "in", inList);
+    if (delErr) throw delErr;
   },
 };
 
