@@ -457,11 +457,27 @@ function expensesLookAlike(a, b) {
 function mergeCloudAndLocal(cloudRows, local) {
   const byId = new Map(cloudRows.map((e) => [e.id, e]));
   for (const item of local) {
-    if (byId.has(item.id)) continue;
+    if (byId.has(item.id)) {
+      // This id is already in the cloud. A non-pending local copy is just a
+      // cache of that row, so the cloud copy wins (another device may be newer).
+      // A pending edit has not landed yet — the cloud row is the pre-edit
+      // version — so keep the local item until sync uploads it.
+      if (item._pending) byId.set(item.id, item);
+      continue;
+    }
     if (isPendingExpense(item) && cloudRows.some((c) => expensesLookAlike(c, item))) continue;
     byId.set(item.id, item);
   }
   return [...byId.values()];
+}
+
+/** Pending rows to upload. editsOnly limits this to edits of existing cloud rows. */
+function pendingExpensesToSync(list, editsOnly) {
+  return list.filter((e) => {
+    if (!isPendingExpense(e)) return false;
+    if (editsOnly) return !!(e._pending && isCloudId(e.id));
+    return true;
+  });
 }
 
 async function fetchCloudExpenses(userId) {
@@ -484,11 +500,15 @@ function replaceExpense(oldId, next) {
   else expenses.push(next);
 }
 
-/** Upload local-only expenses that are not in the cloud yet. */
-async function syncPendingToCloud() {
+/** Upload local expenses that are not in the cloud yet.
+ *  Pass { editsOnly: true } to push edits of existing cloud rows only.
+ *  Brand-new local rows stay out of that pass so the merge's lookalike
+ *  skip still runs before they are inserted. */
+async function syncPendingToCloud(options) {
   if (!useCloud() || !isOnline()) return false;
 
-  const pending = expenses.filter(isPendingExpense);
+  const editsOnly = !!(options && options.editsOnly);
+  const pending = pendingExpensesToSync(expenses, editsOnly);
   if (!pending.length) return false;
 
   let cloudRows = null;
@@ -506,6 +526,7 @@ async function syncPendingToCloud() {
   let changed = false;
   for (const item of pending) {
     try {
+      if (editsOnly && !isCloudId(item.id)) continue;
       if (isCloudId(item.id)) {
         const updated = await withTimeout(
           window.SpendData.update(item.id, expensePayload(item)),
@@ -549,6 +570,9 @@ async function syncPendingToCloud() {
 async function refreshFromCloud() {
   if (!useCloud() || !isOnline()) return false;
   try {
+    // Land unsynced edits before pulling, so a stale cloud row cannot
+    // overwrite them. If the push fails, the merge below still keeps them.
+    await syncPendingToCloud({ editsOnly: true });
     await withTimeout(window.SpendAuth.ensureReady(), NETWORK_TIMEOUT_MS, "Auth");
     const rows = await withTimeout(
       window.SpendData.fetchAll(currentUser.id),
@@ -590,6 +614,18 @@ async function hydrateExpenses() {
   if (!useCloud()) {
     loadLocalExpenses();
     return;
+  }
+
+  // Push edits of rows that already exist in the cloud before we fetch.
+  // New local-only expenses are not included; the sync after the merge
+  // still uploads those. A failed push leaves _pending set, and the merge
+  // keeps that local edit instead of the stale cloud row.
+  if (isOnline()) {
+    try {
+      await syncPendingToCloud({ editsOnly: true });
+    } catch (e) {
+      console.warn("[Spend] Could not push pending edits:", e.message);
+    }
   }
 
   const local = expenses.length ? expenses.slice() : readLocalExpenses();
