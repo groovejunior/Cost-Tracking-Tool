@@ -25,27 +25,22 @@ const helpers = [
   "function readPendingDeletes() { return new Set(); }",
   extractBetween("function isCloudId(", "function makeLocalId("),
   extractBetween("function isPendingExpense(", "function expensePayload("),
-  extractBetween("function expensesLookAlike(", "function mergeCloudAndLocal("),
   extractBetween("function mergeCloudAndLocal(", "function pendingExpensesToSync("),
   extractBetween("function pendingExpensesToSync(", "async function fetchCloudExpenses("),
 ].join("\n");
 
 const sandbox = {};
-new Function("exports", helpers + "\nexports.api = { isCloudId, isPendingExpense, expensesLookAlike, mergeCloudAndLocal, pendingExpensesToSync };")(sandbox);
-const {
-  isCloudId,
-  isPendingExpense,
-  expensesLookAlike,
-  mergeCloudAndLocal,
-  pendingExpensesToSync,
-} = sandbox.api;
+new Function(
+  "exports",
+  helpers + "\nexports.api = { isCloudId, isPendingExpense, mergeCloudAndLocal, pendingExpensesToSync };"
+)(sandbox);
+const { isCloudId, isPendingExpense, mergeCloudAndLocal, pendingExpensesToSync } = sandbox.api;
 
-/** The merge as it behaved before this fix. Kept here so the script can show the loss. */
+/** The merge as it behaved before the B1 fix (stale cloud row wins over pending edits). */
 function mergeCloudAndLocalBeforeFix(cloudRows, local) {
   const byId = new Map(cloudRows.map((e) => [e.id, e]));
   for (const item of local) {
     if (byId.has(item.id)) continue;
-    if (isPendingExpense(item) && cloudRows.some((c) => expensesLookAlike(c, item))) continue;
     byId.set(item.id, item);
   }
   return [...byId.values()];
@@ -171,12 +166,17 @@ check("after a successful push, the edit is no longer pending and matches the cl
   assert.deepStrictEqual(pendingExpensesToSync(merged, false), []);
 });
 
-check("a brand-new local expense is still added, and a lookalike new one is still dropped", () => {
+check("two brand-new local expenses are both kept (no lookalike merge)", () => {
   const fresh = expense("local_42", 12, { note: "new", _pending: true });
-  const lookalike = expense("local_43", 5, { note: "coffee", cat: "food", _pending: true, date: cloud[1].date });
-  const merged = mergeCloudAndLocal(cloud, [fresh, lookalike]);
+  const secondCoffee = expense("local_43", 5, {
+    note: "coffee",
+    cat: "food",
+    _pending: true,
+    date: cloud[1].date,
+  });
+  const merged = mergeCloudAndLocal(cloud, [fresh, secondCoffee]);
   assert.ok(merged.some((e) => e.id === "local_42" && e.amount === 12));
-  assert.ok(!merged.some((e) => e.id === "local_43"));
+  assert.ok(merged.some((e) => e.id === "local_43" && e.amount === 5));
   assert.strictEqual(byId(merged, COFFEE).amount, 5);
 });
 

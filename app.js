@@ -496,15 +496,6 @@ function syncUidFromExpenses() {
   });
 }
 
-function expensesLookAlike(a, b) {
-  return (
-    a.cat === b.cat &&
-    Number(a.amount) === Number(b.amount) &&
-    (a.note || "") === (b.note || "") &&
-    a.date === b.date
-  );
-}
-
 function mergeCloudAndLocal(cloudRows, local) {
   const tombstones = readPendingDeletes();
   const cloudFiltered = cloudRows.filter((e) => !tombstones.has(e.id));
