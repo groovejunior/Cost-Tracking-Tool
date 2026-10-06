@@ -1117,6 +1117,9 @@ function stampFor(dayStr) {
 let currentScreen = "home";
 let currentUser = null;
 let authMode = "signin";
+/** Opened from a password-reset email: ask for a new password before entering the app.
+ *  Read at load because supabase-js clears the hash once it has the session. */
+let passwordRecovery = /(^#|&)type=recovery(&|$)/.test(location.hash || "");
 let filter = "all";
 let listQuery = "";
 let openRow = null;
@@ -2409,7 +2412,9 @@ function setAuthMode(mode) {
   const pwdInput = document.getElementById("authPassword");
   const newPwdInput = document.getElementById("authNewPassword");
   const submit = document.getElementById("authSubmit");
+  const emailField = document.getElementById("authEmail").closest(".field");
 
+  if (emailField) emailField.hidden = mode === "recovery";
   if (pwdField) pwdField.hidden = mode === "forgot" || mode === "recovery";
   if (newPwdField) newPwdField.hidden = mode !== "recovery";
   if (forgotWrap) forgotWrap.hidden = mode !== "signin";
@@ -2439,7 +2444,7 @@ function friendlyAuthError(err) {
   if (/email not confirmed/i.test(msg)) {
     return "Please confirm your email first. Check your inbox or resend the confirmation email.";
   }
-  if (/timed out/i.test(msg) || /failed to fetch|network/i.test(msg)) {
+  if (/timed out/i.test(msg) || /failed to fetch|load failed|network/i.test(msg)) {
     return "Can't reach Spend right now. Check your connection and try again.";
   }
   if (/rate limit|too many requests|429/i.test(msg)) {
@@ -2488,7 +2493,7 @@ async function handleAuthSubmit(e) {
   const password = document.getElementById("authPassword").value;
   const newPassword = document.getElementById("authNewPassword").value;
 
-  if (!email) {
+  if (!email && authMode !== "recovery") {
     showAuthMessage("Enter your email address.", "error");
     return;
   }
@@ -2510,6 +2515,7 @@ async function handleAuthSubmit(e) {
         return;
       }
       await window.SpendAuth.updatePassword(newPassword);
+      passwordRecovery = false;
       document.getElementById("authNewPassword").value = "";
       showToast("Password updated.");
       const session = await window.SpendAuth.getSession();
@@ -2526,19 +2532,19 @@ async function handleAuthSubmit(e) {
     if (authMode === "signup") {
       const data = await window.SpendAuth.signUp(email, password);
       if (data.user && data.user.identities && data.user.identities.length === 0) {
+        setAuthMode("signin");
         showAuthMessage(
           "You already have an account with this email. Sign in or reset your password.",
           "error"
         );
-        setAuthMode("signin");
         return;
       }
       document.getElementById("authPassword").value = "";
       if (data.session) {
         await enterApp(data.session);
       } else {
-        showAuthMessage("Account created. Check your email to confirm, then sign in.", "ok");
         setAuthMode("signin");
+        showAuthMessage("Account created. Check your email to confirm, then sign in.", "ok");
       }
     } else {
       const data = await window.SpendAuth.signIn(email, password);
@@ -2632,8 +2638,13 @@ async function bootstrap() {
     if (booted) return;
     booted = true;
     clearTimeout(fallback);
-    if (session) void enterApp(session);
+    if (session && passwordRecovery) showRecoveryScreen();
+    else if (session) void enterApp(session);
     else showAuthScreen();
+  };
+  const showRecoveryScreen = () => {
+    showAuthScreen();
+    setAuthMode("recovery");
   };
 
   fallback = setTimeout(() => {
@@ -2652,8 +2663,10 @@ async function bootstrap() {
   window.SpendAuth.onAuthStateChange((event, session) => {
     if (event === "TOKEN_REFRESHED") return;
     if (event === "PASSWORD_RECOVERY") {
-      showAuthScreen();
-      setAuthMode("recovery");
+      passwordRecovery = true;
+      booted = true;
+      clearTimeout(fallback);
+      showRecoveryScreen();
       return;
     }
     if (event === "INITIAL_SESSION") {
@@ -2661,6 +2674,7 @@ async function bootstrap() {
       return;
     }
     if (event === "SIGNED_IN") {
+      if (passwordRecovery) return;
       if (appReady && currentUser && session?.user?.id === currentUser.id) return;
       void enterApp(session);
     }

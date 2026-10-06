@@ -266,6 +266,7 @@ input{font-family:inherit;}
   display:block;width:100%;margin-top:12px;background:none;border:none;padding:8px 0;
   font-size:15px;color:#8A8A8A;cursor:pointer;font-family:inherit;
 }
+.auth-toggle[hidden],.auth-back[hidden]{display:none;}
 
 /* account panel (More screen) */
 .account-panel{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px 16px 96px;}

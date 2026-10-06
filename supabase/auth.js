@@ -70,7 +70,7 @@ const SpendAuth = {
   /** Email a password reset link. */
   async resetPasswordForEmail(email) {
     const { error } = await window.spendSupabase.auth.resetPasswordForEmail(email, {
-      emailRedirectTo: authRedirectTo(),
+      redirectTo: authRedirectTo(),
     });
     if (error) throw error;
   },
