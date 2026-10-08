@@ -66,12 +66,18 @@ const SpendAuth = {
     }
   },
 
-  /** Register a new account with email + password. */
-  async signUp(email, password) {
+  /** Register a new account with email + password and optional display name in user metadata. */
+  async signUp(email, password, displayName) {
+    const meta = {};
+    const name = (displayName || "").trim();
+    if (name) meta.display_name = name;
     const { data, error } = await window.spendSupabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: authRedirectTo() },
+      options: {
+        data: meta,
+        emailRedirectTo: authRedirectTo(),
+      },
     });
     if (error) throw error;
     return data;
@@ -108,10 +114,47 @@ const SpendAuth = {
     if (error) throw error;
   },
 
-  /** End the session on this device only. */
+  /** Remove the saved session from this browser (no network required). */
+  clearLocalSession() {
+    if (!this.isEnabled()) return;
+    try {
+      const key = window.spendSupabase.auth.storageKey;
+      if (key) localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  },
+
+  /**
+   * Sign out on this device. Always clears the local session even when offline;
+   * when online, best-effort global revoke so other tabs/devices are logged out too.
+   */
   async signOut() {
-    const { error } = await window.spendSupabase.auth.signOut({ scope: "local" });
-    if (error) throw error;
+    if (!this.isEnabled()) return;
+    let localError = null;
+    try {
+      await withAuthTimeout(
+        window.spendSupabase.auth.signOut({ scope: "local" }),
+        "Sign out"
+      );
+    } catch (err) {
+      localError = err;
+      this.clearLocalSession();
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      try {
+        await withAuthTimeout(
+          window.spendSupabase.auth.signOut({ scope: "global" }),
+          "Sign out"
+        );
+      } catch {
+        /* local session already cleared */
+      }
+    }
+    if (localError) {
+      const still = this.getStoredSession();
+      if (still) throw localError;
+    }
   },
 
   /**

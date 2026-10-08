@@ -5,6 +5,7 @@ const ASSETS = [
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./auth-view.js",
   "./rates.js",
   "./vendor/supabase-js.js",
   "./supabase/config.js",

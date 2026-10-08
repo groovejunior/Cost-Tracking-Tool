@@ -76,46 +76,101 @@
       </div>
       <div class="auth-dock">
         <div class="auth-dock-inner">
-          <form id="authForm" class="auth-form" novalidate>
-            <div class="field">
-              <label class="fl" for="authEmail">Email</label>
-              <div class="auth-input">
-                <span class="auth-input-ico" data-ico="mail" aria-hidden="true"></span>
-                <input class="noteinput" type="email" id="authEmail" autocomplete="email" required
-                       placeholder="youremail@example.com">
-              </div>
+          <div id="authPanelForm" class="auth-panel">
+            <div class="auth-seg" id="authSeg" role="tablist" aria-label="Sign in or create account">
+              <button type="button" class="auth-seg-btn" id="authSegSignIn" role="tab" aria-selected="true">Sign in</button>
+              <button type="button" class="auth-seg-btn" id="authSegSignUp" role="tab" aria-selected="false">Create account</button>
             </div>
-            <div class="field" id="authPasswordField">
-              <label class="fl" for="authPassword" id="authPasswordLabel">Password</label>
-              <div class="auth-input">
-                <span class="auth-input-ico" data-ico="lock" aria-hidden="true"></span>
-                <input class="noteinput" type="password" id="authPassword" autocomplete="current-password"
-                       minlength="6" required placeholder="Enter your password">
-                <button type="button" class="auth-eye" id="authPasswordToggle" aria-label="Show password" aria-pressed="false">
-                  <span class="icon" data-ico="eye" aria-hidden="true"></span>
-                </button>
-              </div>
+            <button type="button" class="auth-back-link" id="authBackToSignIn" hidden>‹ Back to sign in</button>
+            <div id="authBanner" class="auth-banner" hidden role="alert" aria-live="polite"></div>
+            <div class="auth-heading" id="authHeading">
+              <h2 class="auth-title" id="authTitle">Welcome back</h2>
+              <p class="auth-lead" id="authLead">Sign in to see your spending across all your devices.</p>
             </div>
-            <div class="field" id="authNewPasswordField" hidden>
-              <label class="fl" for="authNewPassword">New password</label>
-              <div class="auth-input">
-                <span class="auth-input-ico" data-ico="lock" aria-hidden="true"></span>
-                <input class="noteinput" type="password" id="authNewPassword" autocomplete="new-password"
-                       minlength="6" placeholder="Choose a new password">
+            <form id="authForm" class="auth-form" novalidate>
+              <div class="field" id="authNameField" hidden>
+                <label class="fl" for="authName">What's your name?</label>
+                <div class="auth-input">
+                  <span class="auth-input-ico" data-ico="user" aria-hidden="true"></span>
+                  <input class="noteinput" type="text" id="authName" name="name" autocomplete="given-name"
+                         maxlength="40" placeholder="Your first name" aria-describedby="authNameHelp">
+                </div>
+                <p class="auth-field-help" id="authNameHelp">Shown to friends in shared groups. You can change it later.</p>
+                <p class="auth-field-error" id="authNameError" hidden aria-live="polite"></p>
               </div>
-            </div>
-            <p class="auth-forgot-wrap" id="authForgotWrap">
-              <button type="button" class="auth-forgot" id="authForgotLink">Forgot password?</button>
+              <div class="field" id="authEmailField">
+                <label class="fl" for="authEmail">Email</label>
+                <div class="auth-input">
+                  <span class="auth-input-ico" data-ico="mail" aria-hidden="true"></span>
+                  <input class="noteinput" type="email" id="authEmail" name="email" autocomplete="email"
+                         inputmode="email" autocapitalize="none" spellcheck="false"
+                         placeholder="youremail@example.com" aria-describedby="authEmailError">
+                </div>
+                <p class="auth-field-error" id="authEmailError" hidden aria-live="polite"></p>
+              </div>
+              <div class="field" id="authPasswordField">
+                <label class="fl" for="authPassword" id="authPasswordLabel">Password</label>
+                <div class="auth-input">
+                  <span class="auth-input-ico" data-ico="lock" aria-hidden="true"></span>
+                  <input class="noteinput" type="password" id="authPassword" name="password"
+                         autocomplete="current-password" placeholder="Enter your password"
+                         aria-describedby="authPasswordHelp authPasswordError">
+                  <button type="button" class="auth-eye" id="authPasswordToggle" aria-label="Show password" aria-pressed="false">
+                    <span class="icon" data-ico="eye" aria-hidden="true"></span>
+                  </button>
+                </div>
+                <div class="auth-meter" id="authPasswordMeter" hidden aria-hidden="true">
+                  <span></span><span></span><span></span><span></span>
+                </div>
+                <p class="auth-field-help" id="authPasswordHelp" hidden></p>
+                <p class="auth-field-error" id="authPasswordError" hidden aria-live="polite"></p>
+              </div>
+              <div class="field" id="authConfirmPasswordField" hidden>
+                <label class="fl" for="authConfirmPassword">Confirm new password</label>
+                <div class="auth-input">
+                  <span class="auth-input-ico" data-ico="lock" aria-hidden="true"></span>
+                  <input class="noteinput" type="password" id="authConfirmPassword" name="confirm-password"
+                         autocomplete="new-password" placeholder="Enter it again"
+                         aria-describedby="authConfirmPasswordError">
+                  <button type="button" class="auth-eye" id="authConfirmPasswordToggle" aria-label="Show password" aria-pressed="false">
+                    <span class="icon" data-ico="eye" aria-hidden="true"></span>
+                  </button>
+                </div>
+                <p class="auth-field-error" id="authConfirmPasswordError" hidden aria-live="polite"></p>
+              </div>
+              <p class="auth-forgot-wrap" id="authForgotWrap">
+                <button type="button" class="auth-forgot" id="authForgotLink">Forgot password?</button>
+              </p>
+              <p class="auth-slow-note" id="authSlowNote" hidden>Waking the server can take up to 10 seconds the first time today.</p>
+              <button type="submit" class="savebtn" id="authSubmit">Sign in</button>
+            </form>
+            <p class="auth-foot" id="authFoot" hidden></p>
+            <p class="auth-foot" id="authResendConfirmFoot" hidden>
+              Email not confirmed yet?
+              <button type="button" class="auth-inline-link" id="authResendConfirmLink">Resend confirmation</button>
             </p>
-            <p class="auth-msg" id="authMsg" hidden></p>
-            <button type="submit" class="savebtn" id="authSubmit">Sign in</button>
-            <button type="button" class="auth-forgot" id="authResendBtn" hidden>Resend confirmation email</button>
-            <button type="button" class="auth-back" id="authBackToSignIn" hidden>Back to sign in</button>
-          </form>
-          <button type="button" class="auth-toggle" id="authToggle">
-            <span class="auth-toggle-lead">Need an account?</span>
-            <span class="auth-toggle-action">Sign up</span>
-          </button>
+            <div class="auth-forgot-success" id="authForgotSuccess" hidden role="status" aria-live="polite">
+              ✓ If an account exists for that email, a reset link is on its way. It expires in 1 hour.
+            </div>
+          </div>
+          <div id="authPanelCheckEmail" class="auth-panel" hidden>
+            <div class="auth-mail-ico" aria-hidden="true">
+              <span class="icon" data-ico="mail"></span>
+            </div>
+            <h2 class="auth-title" id="authCheckTitle">Check your inbox</h2>
+            <p class="auth-lead" id="authCheckLead"></p>
+            <ol class="auth-steps">
+              <li>Open the email from Spend</li>
+              <li>Tap <strong>Confirm my email</strong></li>
+              <li>You'll land back here, signed in</li>
+            </ol>
+            <button type="button" class="savebtn" id="authOpenMailBtn">Open mail app</button>
+            <button type="button" class="auth-ghost-btn" id="authResendBtn">Resend email</button>
+            <p class="auth-resend-note" id="authResendNote"></p>
+            <p class="auth-foot">
+              <button type="button" class="auth-inline-link" id="authWrongEmailBtn">Wrong email? Start again</button>
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -231,6 +286,7 @@
 <script src="./vendor/supabase-js.js"></script>
 <script src="./supabase/config.js"></script>
 <script src="./supabase/client.js"></script>
+<script src="./auth-view.js"></script>
 <script src="./supabase/auth.js"></script>
 <script src="./supabase/data.js"></script>
 <script src="./supabase/settings.js"></script>
