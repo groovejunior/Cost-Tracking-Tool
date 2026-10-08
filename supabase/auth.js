@@ -49,6 +49,23 @@ const SpendAuth = {
     return data.session;
   },
 
+  /**
+   * The session saved on this device, read without any network call.
+   * supabase-js keeps it when a token refresh fails because the device is
+   * offline and deletes it when the auth server rejects it, so while it is
+   * present the user is still signed in even if getSession() returns null.
+   */
+  getStoredSession() {
+    if (!this.isEnabled()) return null;
+    try {
+      const raw = localStorage.getItem(window.spendSupabase.auth.storageKey);
+      const session = raw ? JSON.parse(raw) : null;
+      return session && session.refresh_token && session.user && session.user.id ? session : null;
+    } catch {
+      return null;
+    }
+  },
+
   /** Register a new account with email + password. */
   async signUp(email, password) {
     const { data, error } = await window.spendSupabase.auth.signUp({
