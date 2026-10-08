@@ -543,6 +543,52 @@ async function scenario(name, fn) {
     assert.ok(!storage.get("spend_v1_99999999-2222-4333-8444-555555555555"), "written to other user's cache");
   });
 
+  await scenario("reopen offline with a valid session stays signed in with cached expenses", async () => {
+    const server = new FakeServer();
+    server.seed(USER.id, [row(A, 20), row(B, 7)]);
+    const storage = new Map();
+    let app = await bootApp({ server, storage, user: USER });
+    await idle(app);
+    app = await bootApp({ server, storage, user: USER, online: false });
+    await idle(app);
+    assert.strictEqual(app.signedInAs, USER.id, "not signed in");
+    assert.strictEqual(app.expenses.length, 2);
+  });
+
+  await scenario("reopen offline with an expired token stays signed in; changes sync once online", async () => {
+    const server = new FakeServer();
+    server.seed(USER.id, [row(A, 20), row(B, 7)]);
+    const storage = new Map();
+    let app = await bootApp({ server, storage, user: USER });
+    await idle(app);
+    app = await bootApp({ server, storage, user: USER, online: false, auth: "stored" });
+    await idle(app);
+    assert.strictEqual(app.signedInAs, USER.id, "dropped to sign-in");
+    assert.strictEqual(app.expenses.length, 2, "cached expenses missing");
+    await app.addExpense({ amount: 3, note: "offline" });
+    await app.editExpense(A, { amount: 21 });
+    await app.deleteExpense(B);
+    assert.strictEqual(server.count((r) => r.user_id === USER.id), 2, "reached the cloud while offline");
+    app.setOnline(true);
+    await idle(app);
+    assert.strictEqual(server.count((r) => r.note === "offline"), 1);
+    assert.strictEqual(server.rows.get(A).amount, 21);
+    assert.ok(!server.rows.has(B), "deleted row still in cloud");
+    assert.ok(!app.expenses.some((e) => e._pending), "still pending");
+    assert.deepStrictEqual(app.tombstones(), []);
+  });
+
+  await scenario("session rejected by the server (nothing saved) goes to sign-in", async () => {
+    const server = new FakeServer();
+    server.seed(USER.id, [row(A, 20)]);
+    const storage = new Map();
+    let app = await bootApp({ server, storage, user: USER });
+    await idle(app);
+    app = await bootApp({ server, storage, user: USER, auth: "none" });
+    await idle(app);
+    assert.strictEqual(app.signedInAs, null, "still signed in");
+  });
+
   const seeds = Number(process.env.FUZZ_SEEDS || 12);
   for (let seed = 1; seed <= seeds; seed++) {
     await scenario("randomised two-device run, seed " + seed, () => fuzz(seed));
