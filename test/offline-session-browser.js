@@ -276,7 +276,12 @@ async function installAndSignIn(browser, be) {
   await page.goto(APP_URL);
   const s = await waitForScreen(page, 20000);
   await page.waitForFunction(() => navigator.serviceWorker.controller && expenses.length >= 2, null, { timeout: 20000 });
-  await page.waitForFunction(async () => (await (await caches.open((await caches.keys())[0])).keys()).length >= 20, null, { timeout: 20000 });
+  await page.waitForFunction(async () => {
+    const keys = await caches.keys();
+    const name = keys.find((k) => k.startsWith("spend-"));
+    if (!name) return false;
+    return (await (await caches.open(name)).keys()).length >= 21;
+  }, null, { timeout: 20000 });
   return { context, page, a, b, signedInScreen: s, pageErrors };
 }
 
@@ -417,6 +422,127 @@ const scenarios = {
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await page.waitForFunction(() => document.getElementById("screen-auth").classList.contains("active"), null, { timeout: 45000 }).catch(() => {});
     check("shows sign-in after the server rejects the session", (await screen(page)) === "auth", await screen(page));
+    await context.close();
+  },
+
+  async "service worker cache is spend-v58 and includes auth-view.js"(browser) {
+    const be = makeBackend();
+    const { context, page } = await installAndSignIn(browser, be);
+    const info = await page.evaluate(async () => {
+      const keys = await caches.keys();
+      const name = keys.find((k) => k.startsWith("spend-"));
+      const entries = name ? (await (await caches.open(name)).keys()).map((r) => new URL(r.url).pathname) : [];
+      return { keys, name, hasAuthView: entries.some((p) => p.endsWith("/auth-view.js")), n: entries.length };
+    });
+    check("cache name is spend-v58", info.name === "spend-v58", info);
+    check("auth-view.js is precached", info.hasAuthView, info);
+    await context.close();
+  },
+
+  async "sign-out is this device only and pending stays private"(browser) {
+    const be = makeBackend();
+    const { context, page } = await installAndSignIn(browser, be);
+    await page.evaluate(() => {
+      Object.defineProperty(Navigator.prototype, "onLine", { configurable: true, get: () => false });
+    });
+    await addExpense(page, 8, "secret-pending");
+    check("pending saved for this user", (await appState(page)).expenses.some((e) => e.note === "secret-pending" && e.pending));
+    await page.evaluate(() => handleLogout());
+    await page.waitForFunction(() => document.getElementById("screen-auth").classList.contains("active"), null, { timeout: 10000 });
+    const after = await page.evaluate(() => ({
+      screen: document.getElementById("screen-auth").classList.contains("active"),
+      expenses: expenses.length,
+      cached: JSON.parse(localStorage.getItem("spend_v1_aaaaaaaa-0000-4000-8000-000000000001") || "[]"),
+      logoutCalls: [],
+    }));
+    check("auth screen after sign-out", after.screen);
+    check("in-memory expenses cleared", after.expenses === 0, after.expenses);
+    check("pending still in this user's localStorage", after.cached.some((e) => e.note === "secret-pending"), after.cached.map((e) => e.note));
+
+    const logoutUrls = be.log.filter(([, p]) => String(p).includes("/auth/v1/logout")).map(([, p]) => p);
+    check("sign-out used local scope, never global", logoutUrls.every((p) => /scope=local/.test(p)) && !logoutUrls.some((p) => /scope=global/.test(p)), logoutUrls);
+
+    const OTHER = "bbbbbbbb-0000-4000-8000-000000000002";
+    await page.evaluate((other) => {
+      currentUser = { id: other, email: "other@example.com" };
+      setExpenseStoreKey(other);
+      applyLocalUserState();
+    }, OTHER);
+    const otherState = await page.evaluate(() => expenses.map((e) => e.note));
+    check("other account does not see the pending expense", !otherState.includes("secret-pending"), otherState);
+    await context.close();
+  },
+
+  async "auth screens, short passwords, recovery and already-registered"(browser) {
+    const be = makeBackend();
+    const { context, page } = await installAndSignIn(browser, be);
+    await page.evaluate(() => handleLogout());
+    await page.waitForFunction(() => document.getElementById("screen-auth").classList.contains("active"), null, { timeout: 10000 });
+
+    const signin = await page.evaluate(() => {
+      setAuthMode("signin");
+      return {
+        title: document.getElementById("authTitle").textContent,
+        segVisible: !document.getElementById("authSeg").hidden,
+        nameHidden: document.getElementById("authNameField").hidden,
+        nameDisabled: document.getElementById("authName").disabled,
+        shortOk: SpendAuthView.validateSigninFields({ email: "a@b.co", password: "ab" }).ok,
+        signupBlocked: !SpendAuthView.validateSignupPassword("short").ok,
+      };
+    });
+    check("sign-in heading", signin.title === "Welcome back", signin.title);
+    check("segmented control visible on sign-in", signin.segVisible);
+    check("name field hidden and disabled on sign-in (iOS autofill)", signin.nameHidden && signin.nameDisabled);
+    check("existing short passwords still validate for sign-in", signin.shortOk);
+    check("new passwords still need 8 characters", signin.signupBlocked);
+
+    const forgot = await page.evaluate(() => {
+      setAuthMode("forgot");
+      return {
+        title: document.getElementById("authTitle").textContent,
+        segHidden: document.getElementById("authSeg").hidden,
+        backShown: !document.getElementById("authBackToSignIn").hidden,
+        backDisplay: getComputedStyle(document.getElementById("authBackToSignIn")).display,
+        segDisplay: getComputedStyle(document.getElementById("authSeg")).display,
+      };
+    });
+    check("forgot-password heading", forgot.title.includes("Reset"), forgot.title);
+    check("segmented control hidden on forgot (and not display:grid)", forgot.segHidden && forgot.segDisplay === "none");
+    check("back link visible on forgot", forgot.backShown && forgot.backDisplay !== "none");
+
+    const recovery = await page.evaluate(() => {
+      authRecoveryEmail = "carlo@example.com";
+      passwordRecovery = true;
+      setAuthMode("recovery");
+      return {
+        title: document.getElementById("authTitle").textContent,
+        lead: document.getElementById("authLead").textContent,
+        confirmShown: !document.getElementById("authConfirmPasswordField").hidden,
+        emailHidden: document.getElementById("authEmailField").hidden,
+        segHidden: document.getElementById("authSeg").hidden,
+        submit: document.getElementById("authSubmit").textContent,
+      };
+    });
+    check("recovery heading", recovery.title === "Choose a new password", recovery.title);
+    check("recovery shows the account email", /carlo@example.com/.test(recovery.lead), recovery.lead);
+    check("recovery shows confirm password, hides email and tabs", recovery.confirmShown && recovery.emailHidden && recovery.segHidden);
+    check("recovery submit label", /Save and sign in/.test(recovery.submit), recovery.submit);
+
+    const already = await page.evaluate(() => {
+      passwordRecovery = false;
+      setAuthMode("signin");
+      showAuthBanner("You already have an account with this email. Sign in or reset your password.", "error");
+      return {
+        banner: document.getElementById("authBanner").textContent,
+        bannerHidden: document.getElementById("authBanner").hidden,
+        bannerDisplay: getComputedStyle(document.getElementById("authBanner")).display,
+      };
+    });
+    check("already-registered banner stays visible", !already.bannerHidden && already.bannerDisplay !== "none" && /already have an account/.test(already.banner), already);
+
+    const outcome = await page.evaluate(() => SpendAuthView.interpretSignupResponse({ user: { identities: [] } }).outcome);
+    check("already-registered outcome", outcome === "already_registered", outcome);
+
     await context.close();
   },
 

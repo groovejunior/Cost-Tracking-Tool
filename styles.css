@@ -328,7 +328,15 @@ input{font-family:inherit;}
   background:none;border:none;padding:0;font-size:14px;color:var(--ok);cursor:pointer;font-family:inherit;
 }
 .auth-forgot:active{opacity:.85;}
-.auth-panel[hidden]{display:none !important;}
+.auth-panel[hidden],
+.auth-seg[hidden],
+.auth-back-link[hidden],
+.auth-banner[hidden],
+.auth-meter[hidden],
+.auth-forgot-wrap[hidden],
+.auth-foot[hidden],
+.auth-forgot-success[hidden],
+.auth-slow-note[hidden]{display:none !important;}
 
 /* account panel (More screen) */
 .account-panel{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px 16px 96px;}

@@ -254,6 +254,7 @@ async function bootApp({ server, storage, user, online = true, signIn = true, au
       authCallback = cb;
     },
     signOut: async () => {},
+    clearLocalSession() {},
   };
   const data = makeSpendData(server);
   ctx.SpendData = {};

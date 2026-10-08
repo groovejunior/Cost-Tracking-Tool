@@ -128,7 +128,7 @@ function mapAuthError(err) {
       resend: false,
     };
   }
-  if (/weak password|password.*weak|422/i.test(msg)) {
+  if (/weak password|password.*weak|password should be/i.test(msg)) {
     return { banner: "Choose a longer password (8+ characters).", resend: false };
   }
   return { banner: msg || "Something went wrong. Please try again.", resend: false };

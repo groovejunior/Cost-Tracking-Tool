@@ -1134,6 +1134,7 @@ let authSlowTimer = null;
 let authResendCooldownTimer = null;
 let authResendCooldownSec = 0;
 let authPendingCheckEmail = null;
+let authRecoveryEmail = "";
 let filter = "all";
 let listQuery = "";
 let openRow = null;
@@ -2326,6 +2327,8 @@ function showSetupScreen() {
 function showAuthScreen() {
   setAppLoading(false);
   currentUser = null;
+  expenses = [];
+  deletedThisSession.clear();
   updateAccountMenu();
   refreshSyncStatus();
   appReady = false;
@@ -2620,10 +2623,17 @@ function setAuthMode(mode) {
     document.getElementById("authSegSignUp").setAttribute("aria-selected", isSignup ? "true" : "false");
   }
 
+  const nameInput = document.getElementById("authName");
+  const emailInput = document.getElementById("authEmail");
+  const confirmInput = document.getElementById("authConfirmPassword");
   if (nameField) nameField.hidden = !isSignup;
   if (emailField) emailField.hidden = isRecovery;
   if (pwdField) pwdField.hidden = isForgot;
   if (confirmField) confirmField.hidden = !isRecovery;
+  if (nameInput) nameInput.disabled = !isSignup;
+  if (emailInput) emailInput.disabled = isRecovery;
+  if (pwdInput) pwdInput.disabled = isForgot;
+  if (confirmInput) confirmInput.disabled = !isRecovery;
   if (forgotWrap) forgotWrap.hidden = !isSignin;
   if (foot) {
     foot.hidden = isForgot || isRecovery;
@@ -2644,7 +2654,7 @@ function setAuthMode(mode) {
     } else if (isRecovery) {
       title.textContent = "Choose a new password";
       const em =
-        (currentUser && currentUser.email) ||
+        authRecoveryEmail ||
         document.getElementById("authEmail").value.trim() ||
         "your account";
       lead.textContent = "For " + em;
@@ -2662,7 +2672,6 @@ function setAuthMode(mode) {
     pwdInput.autocomplete = isSignin ? "current-password" : "new-password";
     pwdInput.placeholder = isRecovery ? "Choose a new password" : isSignup ? "At least 8 characters" : "Enter your password";
   }
-  const emailInput = document.getElementById("authEmail");
   if (emailInput) emailInput.autocomplete = isSignin ? "username" : "email";
 
   if (submit && !authLoading) {
@@ -2835,6 +2844,7 @@ async function handleLogout() {
   appReady = false;
   passwordRecovery = false;
   authPendingCheckEmail = null;
+  authRecoveryEmail = "";
   showAuthScreen();
   setAuthMode("signin");
 }
@@ -2927,11 +2937,12 @@ async function bootstrap() {
     if (!session) session = window.SpendAuth.getStoredSession();
     booted = true;
     clearTimeout(fallback);
-    if (session && passwordRecovery) showRecoveryScreen();
+    if (session && passwordRecovery) showRecoveryScreen(session);
     else if (session) void enterApp(session);
     else showAuthScreen();
   };
-  const showRecoveryScreen = () => {
+  const showRecoveryScreen = (session) => {
+    authRecoveryEmail = (session && session.user && session.user.email) || "";
     showAuthScreen();
     setAuthMode("recovery");
   };
@@ -2961,7 +2972,7 @@ async function bootstrap() {
       passwordRecovery = true;
       booted = true;
       clearTimeout(fallback);
-      showRecoveryScreen();
+      showRecoveryScreen(session);
       return;
     }
     if (event === "INITIAL_SESSION") {

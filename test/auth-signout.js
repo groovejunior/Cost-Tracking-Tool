@@ -1,7 +1,8 @@
 "use strict";
 
 /**
- * Offline sign-out: local session must clear even when Supabase signOut rejects.
+ * Sign-out must clear this device's session even when offline, and must
+ * never ask Supabase to revoke the session on other devices.
  */
 const fs = require("fs");
 const path = require("path");
@@ -12,6 +13,7 @@ const AUTH_SRC = fs.readFileSync(path.join(__dirname, "..", "supabase", "auth.js
 function makeStorage() {
   const map = new Map();
   return {
+    map,
     getItem(k) {
       return map.has(k) ? map.get(k) : null;
     },
@@ -24,31 +26,19 @@ function makeStorage() {
   };
 }
 
-let pass = 0;
-let fail = 0;
-function check(name, ok, detail) {
-  if (ok) {
-    pass++;
-    console.log("  ✓", name);
-  } else {
-    fail++;
-    console.log("  ✗", name, detail || "");
-  }
-}
-
-(async () => {
+function bootAuth({ online, signOutImpl }) {
   const storage = makeStorage();
   const storageKey = "sb-test-auth-token";
-  const session = JSON.stringify({
+  storage.setItem(storageKey, JSON.stringify({
     refresh_token: "rt",
     user: { id: "u1", email: "a@b.co" },
-  });
-  storage.setItem(storageKey, session);
-
+  }));
+  storage.setItem(storageKey + "-user", "{}");
+  const scopes = [];
   const ctx = {
     localStorage: storage,
     location: { origin: "http://localhost", pathname: "/Cost-Tracking-Tool/" },
-    navigator: { onLine: false },
+    navigator: { onLine: online },
     window: {},
     setTimeout,
     clearTimeout,
@@ -56,8 +46,10 @@ function check(name, ok, detail) {
     spendSupabase: {
       auth: {
         storageKey,
-        signOut: async () => {
-          throw new Error("Failed to fetch");
+        signOut: async (opts) => {
+          scopes.push(opts && opts.scope);
+          if (signOutImpl) return signOutImpl(opts);
+          storage.removeItem(storageKey);
         },
       },
     },
@@ -65,10 +57,48 @@ function check(name, ok, detail) {
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(AUTH_SRC, ctx);
+  return { ctx, storage, storageKey, scopes };
+}
 
-  check("stored session present", !!ctx.SpendAuth.getStoredSession());
-  await ctx.SpendAuth.signOut();
-  check("stored session cleared offline", !ctx.SpendAuth.getStoredSession());
+let pass = 0;
+let fail = 0;
+function check(name, ok, detail) {
+  if (ok) {
+    pass++;
+    console.log("  ok   ", name);
+  } else {
+    fail++;
+    console.log("  FAIL ", name, detail || "");
+  }
+}
+
+(async () => {
+  {
+    const { ctx, scopes, storageKey, storage } = bootAuth({
+      online: false,
+      signOutImpl: async () => {
+        throw new Error("Failed to fetch");
+      },
+    });
+    check("offline: session present before sign-out", !!ctx.SpendAuth.getStoredSession());
+    await ctx.SpendAuth.signOut();
+    check("offline: session cleared when supabase-js rejects", !ctx.SpendAuth.getStoredSession());
+    check("offline: only local scope was requested", scopes.length === 1 && scopes[0] === "local", scopes);
+    check("offline: leftover -user key cleared", storage.getItem(storageKey + "-user") === null);
+  }
+
+  {
+    const { ctx, scopes, storage, storageKey } = bootAuth({
+      online: true,
+      signOutImpl: async ({ scope }) => {
+        if (scope === "global") throw new Error("should not revoke globally");
+        storage.removeItem(storageKey);
+      },
+    });
+    await ctx.SpendAuth.signOut();
+    check("online: only local scope (other devices stay signed in)", JSON.stringify(scopes) === '["local"]', scopes);
+    check("online: session gone after local sign-out", !ctx.SpendAuth.getStoredSession());
+  }
 
   console.log(`\n${pass}/${pass + fail} auth-signout checks passed`);
   process.exit(fail ? 1 : 0);

@@ -78,8 +78,8 @@
         <div class="auth-dock-inner">
           <div id="authPanelForm" class="auth-panel">
             <div class="auth-seg" id="authSeg" role="tablist" aria-label="Sign in or create account">
-              <button type="button" class="auth-seg-btn" id="authSegSignIn" role="tab" aria-selected="true">Sign in</button>
-              <button type="button" class="auth-seg-btn" id="authSegSignUp" role="tab" aria-selected="false">Create account</button>
+              <button type="button" class="auth-seg-btn" id="authSegSignIn" role="tab" aria-selected="true" aria-controls="authForm">Sign in</button>
+              <button type="button" class="auth-seg-btn" id="authSegSignUp" role="tab" aria-selected="false" aria-controls="authForm">Create account</button>
             </div>
             <button type="button" class="auth-back-link" id="authBackToSignIn" hidden>‹ Back to sign in</button>
             <div id="authBanner" class="auth-banner" hidden role="alert" aria-live="polite"></div>
@@ -93,7 +93,7 @@
                 <div class="auth-input">
                   <span class="auth-input-ico" data-ico="user" aria-hidden="true"></span>
                   <input class="noteinput" type="text" id="authName" name="name" autocomplete="given-name"
-                         maxlength="40" placeholder="Your first name" aria-describedby="authNameHelp">
+                         maxlength="40" placeholder="Your first name" aria-describedby="authNameHelp authNameError">
                 </div>
                 <p class="auth-field-help" id="authNameHelp">Shown to friends in shared groups. You can change it later.</p>
                 <p class="auth-field-error" id="authNameError" hidden aria-live="polite"></p>

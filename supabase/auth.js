@@ -119,41 +119,31 @@ const SpendAuth = {
     if (!this.isEnabled()) return;
     try {
       const key = window.spendSupabase.auth.storageKey;
-      if (key) localStorage.removeItem(key);
+      if (!key) return;
+      localStorage.removeItem(key);
+      localStorage.removeItem(key + "-user");
+      localStorage.removeItem(key + "-code-verifier");
     } catch {
       /* ignore */
     }
   },
 
   /**
-   * Sign out on this device. Always clears the local session even when offline;
-   * when online, best-effort global revoke so other tabs/devices are logged out too.
+   * Sign out on this device only. Other phones/laptops stay signed in
+   * (a personal tracker should not kick you out everywhere). Always
+   * clears the local session even when offline so the auth screen shows.
+   * Other tabs on this browser still hear SIGNED_OUT via supabase-js.
    */
   async signOut() {
     if (!this.isEnabled()) return;
-    let localError = null;
     try {
       await withAuthTimeout(
         window.spendSupabase.auth.signOut({ scope: "local" }),
         "Sign out"
       );
     } catch (err) {
-      localError = err;
       this.clearLocalSession();
-    }
-    if (typeof navigator !== "undefined" && navigator.onLine) {
-      try {
-        await withAuthTimeout(
-          window.spendSupabase.auth.signOut({ scope: "global" }),
-          "Sign out"
-        );
-      } catch {
-        /* local session already cleared */
-      }
-    }
-    if (localError) {
-      const still = this.getStoredSession();
-      if (still) throw localError;
+      if (this.getStoredSession()) throw err;
     }
   },
 
