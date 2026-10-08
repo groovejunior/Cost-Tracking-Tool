@@ -2636,6 +2636,9 @@ async function bootstrap() {
   let fallback;
   const start = (session) => {
     if (booted) return;
+    // An expired access token can't be refreshed offline, so supabase-js
+    // reports no session while still keeping it saved; stay signed in then.
+    if (!session) session = window.SpendAuth.getStoredSession();
     booted = true;
     clearTimeout(fallback);
     if (session && passwordRecovery) showRecoveryScreen();
@@ -2647,14 +2650,20 @@ async function bootstrap() {
     setAuthMode("recovery");
   };
 
+  // supabase-js retries a failed token refresh for ~30s before reporting, so
+  // don't wait on it when a saved session exists (immediately when offline).
   fallback = setTimeout(() => {
+    if (window.SpendAuth.getStoredSession()) {
+      start(null);
+      return;
+    }
     void withTimeout(window.SpendAuth.getSession(), NETWORK_TIMEOUT_MS, "Session")
       .then(start)
       .catch((err) => {
         console.warn("[Spend] Session check failed:", err.message);
         start(null);
       });
-  }, 4000);
+  }, navigator.onLine === false ? 0 : 4000);
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") refreshViewMonthIfFollowingToday();
@@ -2792,7 +2801,7 @@ function registerServiceWorker() {
     navigator.serviceWorker
       .register("./sw.js")
       .then((reg) => {
-        reg.update();
+        reg.update().catch(() => {});
         reg.addEventListener("updatefound", () => {
           const worker = reg.installing;
           if (!worker) return;

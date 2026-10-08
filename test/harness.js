@@ -181,8 +181,11 @@ function makeSpendData(server) {
 /**
  * Boot one "page load" of the app for `user` against `server`.
  * `storage` is a Map shared across reloads of the same device.
+ * `auth`: "ok" = supabase-js reports the session; "stored" = it reports none
+ * (expired token, refresh failed offline) but the session is still saved;
+ * "none" = signed out / rejected, nothing saved.
  */
-async function bootApp({ server, storage, user, online = true, signIn = true }) {
+async function bootApp({ server, storage, user, online = true, signIn = true, auth = "ok" }) {
   const document = makeDocument();
   const navigator = { onLine: online };
   const windowListeners = {};
@@ -239,10 +242,14 @@ async function bootApp({ server, storage, user, online = true, signIn = true }) 
   ctx.window = ctx;
   ctx.self = ctx;
 
+  const reported = signIn && auth === "ok" ? session : null;
   ctx.SpendAuth = {
     isEnabled: () => true,
-    ensureReady: async () => {},
-    getSession: async () => (signIn ? session : null),
+    ensureReady: async () => {
+      if (!navigator.onLine) throw new Error("Failed to fetch");
+    },
+    getSession: async () => reported,
+    getStoredSession: () => (signIn && auth !== "none" ? session : null),
     onAuthStateChange(cb) {
       authCallback = cb;
     },
@@ -291,7 +298,10 @@ async function bootApp({ server, storage, user, online = true, signIn = true }) 
       (windowListeners[evt] || []).forEach((fn) => fn({ type: evt }));
     },
     async signInNow() {
-      authCallback("INITIAL_SESSION", signIn ? session : null);
+      authCallback("INITIAL_SESSION", reported);
+    },
+    get signedInAs() {
+      return vm.runInContext("appReady && currentUser ? currentUser.id : null", ctx);
     },
     /** Fill the add form and save, the way the UI does. */
     async addExpense({ cat = "groceries", amount, note = "", day }) {
@@ -325,7 +335,7 @@ async function bootApp({ server, storage, user, online = true, signIn = true }) 
 
   if (signIn) {
     await settle();
-    authCallback("INITIAL_SESSION", session);
+    authCallback("INITIAL_SESSION", reported);
   }
   return app;
 }
