@@ -2801,7 +2801,7 @@ function registerServiceWorker() {
     navigator.serviceWorker
       .register("./sw.js")
       .then((reg) => {
-        reg.update();
+        reg.update().catch(() => {});
         reg.addEventListener("updatefound", () => {
           const worker = reg.installing;
           if (!worker) return;
