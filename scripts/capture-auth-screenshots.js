@@ -86,10 +86,11 @@ async function shot(page, name) {
 
   await page.evaluate(() => {
     setAuthMode("signup");
-    setAuthFieldError("authNameField", "authNameError", "Tell us what to call you.");
-    setAuthFieldError("authEmailField", "authEmailError", "Did you mean mia@gmail.com?");
-    setAuthFieldError("authPasswordField", "authPasswordError", "Use at least 8 characters.");
-    document.getElementById("authSubmit").disabled = true;
+    clearAuthBanner();
+    document.getElementById("authName").value = "";
+    document.getElementById("authEmail").value = "";
+    document.getElementById("authPassword").value = "";
+    document.getElementById("authForm").requestSubmit();
   });
   await page.waitForTimeout(200);
   await shot(page, "auth-07-inline-validation.png");

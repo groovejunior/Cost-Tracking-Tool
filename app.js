@@ -1136,6 +1136,8 @@ let authResendCooldownSec = 0;
 let authPendingCheckEmail = null;
 let authRecoveryEmail = "";
 const authTouched = { name: false, email: false, password: false, confirm: false };
+/** Ignore blur validation while setAuthMode moves focus (avoids errors on a fresh tab). */
+let authSuppressBlurValidation = false;
 
 function resetAuthValidationState() {
   authTouched.name = false;
@@ -2692,6 +2694,7 @@ function showCheckEmailPanel({ name, email }) {
 }
 
 function setAuthMode(mode) {
+  authSuppressBlurValidation = true;
   authMode = mode;
   const panelForm = document.getElementById("authPanelForm");
   const panelCheck = document.getElementById("authPanelCheckEmail");
@@ -2728,6 +2731,7 @@ function setAuthMode(mode) {
     document.getElementById("authCheckLead").innerHTML =
       "We sent a confirmation link to<br><span class=\"auth-email-pill\">" + esc(em) + "</span>";
     updateAuthResendNote();
+    authSuppressBlurValidation = false;
     return;
   }
 
@@ -2803,8 +2807,15 @@ function setAuthMode(mode) {
   const focusId =
     isSignup ? "authName" : isRecovery ? "authPassword" : isForgot ? "authEmail" : "authEmail";
   const focusEl = document.getElementById(focusId);
-  if (focusEl && document.getElementById("screen-auth").classList.contains("active")) {
-    setTimeout(() => focusEl.focus(), 0);
+  const authScreenActive = document.getElementById("screen-auth").classList.contains("active");
+  if (focusEl && authScreenActive) {
+    setTimeout(() => {
+      focusEl.focus();
+      resetAuthValidationState();
+      authSuppressBlurValidation = false;
+    }, 0);
+  } else {
+    authSuppressBlurValidation = false;
   }
 }
 
@@ -3046,6 +3057,7 @@ function wireAuthForm() {
     if (el) {
       el.addEventListener("input", onInput);
       el.addEventListener("blur", () => {
+        if (authSuppressBlurValidation) return;
         const key = authInputTouchedKey(id);
         if (!key) return;
         authTouched[key] = true;

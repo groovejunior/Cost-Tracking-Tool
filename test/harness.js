@@ -16,7 +16,7 @@ const AUTH_VIEW_SRC =
   fs.readFileSync(path.join(__dirname, "..", "auth-view.js"), "utf8") +
   ";if(typeof window!=='undefined')window.SpendAuthView=SpendAuthView;";
 
-function makeElement(id) {
+function makeElement(id, docState) {
   const listeners = {};
   const store = {
     id: id || "",
@@ -42,6 +42,13 @@ function makeElement(id) {
       const evt = { preventDefault() {}, type: "submit" };
       (listeners.submit || []).forEach((fn) => fn(evt));
     },
+    focus() {
+      if (docState && docState.focusedEl && docState.focusedEl !== store) {
+        (docState.focusedEl.__listeners?.blur || []).forEach((fn) => fn());
+      }
+      if (docState) docState.focusedEl = store;
+    },
+    __listeners: listeners,
     classList: {
       _s: new Set(),
       add(...c) { c.forEach((x) => this._s.add(x)); },
@@ -81,10 +88,11 @@ function screenEls(els) {
 
 function makeDocument() {
   const els = new Map();
-  return {
+  const docState = { focusedEl: null };
+  const doc = {
     visibilityState: "visible",
     getElementById(id) {
-      if (!els.has(id)) els.set(id, makeElement(id));
+      if (!els.has(id)) els.set(id, makeElement(id, docState));
       return els.get(id);
     },
     querySelector(sel) {
@@ -104,9 +112,10 @@ function makeDocument() {
     addEventListener() {},
     removeEventListener() {},
     createElement: (tag) => makeElement(tag),
-    body: makeElement("body"),
-    documentElement: makeElement("html"),
+    body: makeElement("body", docState),
+    documentElement: makeElement("html", docState),
   };
+  return doc;
 }
 
 function deferred() {
