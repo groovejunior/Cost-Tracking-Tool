@@ -38,7 +38,13 @@ const ORIGIN = `http://${HOST}:${PORT}`;
 const APP_URL = `${ORIGIN}/Cost-Tracking-Tool/`;
 const SUPABASE = "https://wwzzyetczulvduucdhoz.supabase.co";
 const STORAGE_KEY = "sb-wwzzyetczulvduucdhoz-auth-token";
-const USER = { id: "aaaaaaaa-0000-4000-8000-000000000001", email: "owner@example.com", aud: "authenticated", role: "authenticated" };
+const USER = {
+  id: "aaaaaaaa-0000-4000-8000-000000000001",
+  email: "owner@example.com",
+  aud: "authenticated",
+  role: "authenticated",
+  user_metadata: { display_name: "Owner" },
+};
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".webmanifest": "application/manifest+json", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml" };
 
