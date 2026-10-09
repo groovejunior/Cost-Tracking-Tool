@@ -26,6 +26,7 @@ const ICONS = {
   eye: P('<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>'),
   eyeOff: P('<path d="M3 4l18 16"/><path d="M10.6 10.7a2.5 2.5 0 0 0 3.5 3.5"/><path d="M7 8.2C4.4 9.6 2.8 12 2.8 12s3.5 6 9.2 6c1.5 0 2.8-.3 4-.8M10.2 6.2A10.5 10.5 0 0 1 12 6c6.5 0 10 6 10 6a16 16 0 0 1-3.3 3.6"/>'),
   lock: P('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
+  user: P('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>'),
   chevron: P('<path d="M6 9l6 6 6-6"/>'),
   chevronLeft: P('<path d="M15 6l-6 6 6 6"/>'),
   chevronRight: P('<path d="M9 6l6 6-6 6"/>'),
@@ -906,9 +907,16 @@ function closeConfirm(result) {
 
 let accountMenuOpen = false;
 
-function accountInitial(email) {
-  const ch = (email || "?").trim().charAt(0).toUpperCase();
+function accountInitial(label) {
+  if (window.SpendAuthView) return window.SpendAuthView.accountInitialFromLabel(label);
+  const ch = (label || "?").trim().charAt(0).toUpperCase();
   return ch || "?";
+}
+
+function accountDisplayLabel() {
+  if (!currentUser) return "";
+  if (window.SpendAuthView) return window.SpendAuthView.accountLabelFromUser(currentUser);
+  return currentUser.email || "";
 }
 
 function closeAccountMenu() {
@@ -943,7 +951,8 @@ function updateAccountMenu() {
   }
 
   const email = currentUser.email || "Account";
-  document.getElementById("accountInitial").textContent = accountInitial(email);
+  const label = accountDisplayLabel();
+  document.getElementById("accountInitial").textContent = accountInitial(label || email);
   document.getElementById("accountPopoverEmail").textContent = email;
 }
 
@@ -1120,6 +1129,31 @@ let authMode = "signin";
 /** Opened from a password-reset email: ask for a new password before entering the app.
  *  Read at load because supabase-js clears the hash once it has the session. */
 let passwordRecovery = /(^#|&)type=recovery(&|$)/.test(location.hash || "");
+let authLoading = false;
+let authSlowTimer = null;
+let authResendCooldownTimer = null;
+let authResendCooldownSec = 0;
+let authPendingCheckEmail = null;
+let authRecoveryEmail = "";
+const authTouched = { name: false, email: false, password: false, confirm: false };
+/** Ignore blur validation while setAuthMode moves focus (avoids errors on a fresh tab). */
+let authSuppressBlurValidation = false;
+
+function resetAuthValidationState() {
+  authTouched.name = false;
+  authTouched.email = false;
+  authTouched.password = false;
+  authTouched.confirm = false;
+  clearAuthFieldErrors();
+}
+
+function authInputTouchedKey(inputId) {
+  if (inputId === "authName") return "name";
+  if (inputId === "authEmail") return "email";
+  if (inputId === "authPassword") return "password";
+  if (inputId === "authConfirmPassword") return "confirm";
+  return null;
+}
 let filter = "all";
 let listQuery = "";
 let openRow = null;
@@ -2312,6 +2346,8 @@ function showSetupScreen() {
 function showAuthScreen() {
   setAppLoading(false);
   currentUser = null;
+  expenses = [];
+  deletedThisSession.clear();
   updateAccountMenu();
   refreshSyncStatus();
   appReady = false;
@@ -2322,7 +2358,11 @@ function showAuthScreen() {
   app.classList.remove("modal");
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
   document.getElementById("screen-auth").classList.add("active");
-  clearAuthMessage();
+  if (passwordRecovery) setAuthMode("recovery");
+  else if (authMode === "checkEmail" || authMode === "forgot") setAuthMode(authMode);
+  else setAuthMode("signin");
+  clearAuthBanner();
+  paintIcons(document.getElementById("screen-auth"));
 }
 
 function paintSignedInApp() {
@@ -2347,6 +2387,50 @@ async function syncCloudInBackground() {
   }
 }
 
+function shouldPromptDisplayName() {
+  return (
+    useCloud() &&
+    currentUser &&
+    !passwordRecovery &&
+    authView() &&
+    !authView().userHasDisplayName(currentUser)
+  );
+}
+
+function showDisplayNameScreen() {
+  setAppLoading(false);
+  appReady = false;
+  const app = document.getElementById("app");
+  app.classList.add("auth-mode");
+  app.classList.remove("modal");
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  document.getElementById("screen-display-name").classList.add("active");
+  const input = document.getElementById("displayNameInput");
+  const err = document.getElementById("displayNameError");
+  const field = document.getElementById("displayNameField");
+  if (input) input.value = "";
+  if (err) {
+    err.textContent = "";
+    err.hidden = true;
+  }
+  if (field) field.classList.remove("field--error");
+  paintIcons(document.getElementById("screen-display-name"));
+  if (input) setTimeout(() => input.focus(), 0);
+}
+
+async function completeAppEntry() {
+  paintSignedInApp();
+  setAppLoading(false);
+  void syncCloudInBackground();
+  void loadUserSettings(currentUser?.id)
+    .then(() => loadCategories(currentUser?.id))
+    .then(() => window.SpendRates.ensureForExpenses(expenses))
+    .then((updated) => {
+      if (updated && currentScreen === "home") renderHome();
+    })
+    .catch((e) => console.warn("[Spend] Background sync:", e.message));
+}
+
 async function enterApp(session) {
   const user = session ? session.user : null;
   if (appReady && currentUser && user && currentUser.id === user.id) return;
@@ -2357,22 +2441,17 @@ async function enterApp(session) {
   setAppLoading(true);
   try {
     applyLocalUserState();
-    paintSignedInApp();
-    setAppLoading(false);
-    void syncCloudInBackground();
-    void loadUserSettings(currentUser?.id)
-      .then(() => loadCategories(currentUser?.id))
-      .then(() => window.SpendRates.ensureForExpenses(expenses))
-      .then((updated) => {
-        if (updated && currentScreen === "home") renderHome();
-      })
-      .catch((e) => console.warn("[Spend] Background sync:", e.message));
+    if (shouldPromptDisplayName() && navigator.onLine) {
+      showDisplayNameScreen();
+      return;
+    }
+    await completeAppEntry();
   } catch (err) {
     showToast(err.message || "Could not load your expenses.");
     if (currentUser) {
       try {
         applyLocalUserState();
-        paintSignedInApp();
+        await completeAppEntry();
       } catch (e) {
         showAuthScreen();
         appReady = false;
@@ -2387,136 +2466,487 @@ async function enterApp(session) {
   }
 }
 
-function setAuthToggleLabel(mode) {
-  const btn = document.getElementById("authToggle");
-  if (!btn) return;
-  if (mode === "signin") {
-    btn.innerHTML =
-      '<span class="auth-toggle-lead">Need an account?</span>' +
-      '<span class="auth-toggle-action">Sign up</span>';
-  } else {
-    btn.innerHTML =
-      '<span class="auth-toggle-lead">Already have an account?</span>' +
-      '<span class="auth-toggle-action">Sign in</span>';
+async function handleDisplayNameSubmit(e) {
+  e.preventDefault();
+  const input = document.getElementById("displayNameInput");
+  const field = document.getElementById("displayNameField");
+  const err = document.getElementById("displayNameError");
+  const v = authView().validateDisplayName(input ? input.value : "");
+  if (!v.ok) {
+    if (field) field.classList.add("field--error");
+    if (err) {
+      err.textContent = v.message;
+      err.hidden = false;
+    }
+    return;
+  }
+  if (field) field.classList.remove("field--error");
+  if (err) err.hidden = true;
+  const submit = document.getElementById("displayNameSubmit");
+  if (submit) submit.disabled = true;
+  try {
+    const data = await window.SpendAuth.updateDisplayName(v.value);
+    if (data && data.user) currentUser = data.user;
+    updateAccountMenu();
+    enterAppRunning = true;
+    await completeAppEntry();
+  } catch (saveErr) {
+    console.warn("[Spend] Could not save display name:", saveErr.message);
+    showToast("Could not save your name right now. You can try again next time you open Spend.");
+    enterAppRunning = true;
+    await completeAppEntry();
+  } finally {
+    if (submit) submit.disabled = false;
+    enterAppRunning = false;
   }
 }
 
-function setAuthMode(mode) {
-  authMode = mode;
-  const toggle = document.getElementById("authToggle");
-  const forgotWrap = document.getElementById("authForgotWrap");
-  const pwdField = document.getElementById("authPasswordField");
-  const newPwdField = document.getElementById("authNewPasswordField");
-  const backBtn = document.getElementById("authBackToSignIn");
-  const resendBtn = document.getElementById("authResendBtn");
-  const pwdInput = document.getElementById("authPassword");
-  const newPwdInput = document.getElementById("authNewPassword");
+function wireDisplayNameForm() {
+  const form = document.getElementById("displayNameForm");
+  if (!form) return;
+  form.addEventListener("submit", (e) => {
+    void handleDisplayNameSubmit(e);
+  });
+}
+
+function authView() {
+  return window.SpendAuthView;
+}
+
+function authRootEl() {
+  return document.querySelector("#screen-auth .auth--hybrid");
+}
+
+function setAuthCompact(on) {
+  const root = authRootEl();
+  if (root) root.classList.toggle("auth--compact", !!on);
+}
+
+function clearAuthFieldErrors() {
+  ["authNameField", "authEmailField", "authPasswordField", "authConfirmPasswordField"].forEach((id) => {
+    const field = document.getElementById(id);
+    if (field) field.classList.remove("field--error");
+  });
+  ["authNameError", "authEmailError", "authPasswordError", "authConfirmPasswordError"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = "";
+      el.hidden = true;
+    }
+  });
+}
+
+function setAuthFieldError(fieldId, errorId, message) {
+  const field = document.getElementById(fieldId);
+  const err = document.getElementById(errorId);
+  if (field) field.classList.toggle("field--error", !!message);
+  if (err) {
+    err.textContent = message || "";
+    err.hidden = !message;
+  }
+}
+
+function showAuthBanner(text, type, options) {
+  const el = document.getElementById("authBanner");
+  if (!el) return;
+  const opts = options || {};
+  el.className = "auth-banner " + (type || "error");
+  if (!text) {
+    el.textContent = "";
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  if (opts.resend) {
+    el.innerHTML =
+      "! " +
+      esc(text) +
+      ' <button type="button" class="auth-inline-link" id="authBannerResend">Resend confirmation</button>';
+    const btn = document.getElementById("authBannerResend");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        void resendSignupEmail(document.getElementById("authEmail").value.trim());
+      });
+    }
+    return;
+  }
+  el.textContent = type === "error" ? "! " + text : "✓ " + text;
+}
+
+function clearAuthBanner() {
+  showAuthBanner("", "");
+}
+
+function updatePasswordMeter() {
+  const meter = document.getElementById("authPasswordMeter");
+  const help = document.getElementById("authPasswordHelp");
+  const pwd = document.getElementById("authPassword");
+  if (!meter || !help || !pwd) return;
+  const show = authMode === "signup" || authMode === "recovery";
+  meter.hidden = !show;
+  help.hidden = !show;
+  if (!show) return;
+  const { segments, label } = authView().passwordStrength(pwd.value);
+  meter.querySelectorAll("span").forEach((bar, i) => {
+    bar.classList.toggle("on", i < segments);
+  });
+  help.textContent = label;
+  const weak = authView().passwordStrength(pwd.value).weak;
+  help.classList.toggle(
+    "auth-field-error",
+    weak && (authTouched.password || authMode === "recovery")
+  );
+}
+
+function authSubmitLabel() {
+  if (authMode === "forgot") return "Send reset link";
+  if (authMode === "recovery") return "Save and sign in";
+  if (authMode === "signup") return "Create account";
+  return "Sign in";
+}
+
+function authLoadingLabel() {
+  if (authMode === "signup") return "Creating account…";
+  if (authMode === "forgot") return "Sending link…";
+  if (authMode === "recovery") return "Saving…";
+  return "Signing in…";
+}
+
+function refreshAuthSubmitEnabled() {
   const submit = document.getElementById("authSubmit");
-  const emailField = document.getElementById("authEmail").closest(".field");
-
-  if (emailField) emailField.hidden = mode === "recovery";
-  if (pwdField) pwdField.hidden = mode === "forgot" || mode === "recovery";
-  if (newPwdField) newPwdField.hidden = mode !== "recovery";
-  if (forgotWrap) forgotWrap.hidden = mode !== "signin";
-  if (toggle) toggle.hidden = mode === "forgot" || mode === "recovery";
-  if (backBtn) backBtn.hidden = mode !== "forgot" && mode !== "recovery";
-  if (resendBtn) resendBtn.hidden = true;
-  if (pwdInput) pwdInput.required = mode === "signin" || mode === "signup";
-  if (newPwdInput) newPwdInput.required = mode === "recovery";
-
-  if (mode === "forgot") submit.textContent = "Send reset link";
-  else if (mode === "recovery") submit.textContent = "Save new password";
-  else if (mode === "signup") submit.textContent = "Create account";
-  else submit.textContent = "Sign in";
-
-  if (mode === "signin" || mode === "signup") {
-    setAuthToggleLabel(mode);
-    if (pwdInput) pwdInput.autocomplete = mode === "signin" ? "current-password" : "new-password";
+  if (!submit || authLoading) return;
+  if (authMode !== "signup") {
+    submit.disabled = false;
+    return;
   }
-  clearAuthMessage();
-}
-
-function friendlyAuthError(err) {
-  const msg = (err && err.message) || "";
-  if (/invalid login credentials/i.test(msg)) {
-    return "That email and password don't match. Try again or reset your password.";
-  }
-  if (/email not confirmed/i.test(msg)) {
-    return "Please confirm your email first. Check your inbox or resend the confirmation email.";
-  }
-  if (/timed out/i.test(msg) || /failed to fetch|load failed|network/i.test(msg)) {
-    return "Can't reach Spend right now. Check your connection and try again.";
-  }
-  if (/rate limit|too many requests|429/i.test(msg)) {
-    return "Too many emails just now. Please try again in a few minutes.";
-  }
-  return msg || "Something went wrong. Please try again.";
-}
-
-function showAuthResend(email) {
-  const btn = document.getElementById("authResendBtn");
-  if (!btn) return;
-  btn.hidden = false;
-  btn.dataset.email = email;
-}
-
-function showAuthMessage(text, type) {
-  const el = document.getElementById("authMsg");
-  el.textContent = text;
-  el.className = "auth-msg " + (type || "error");
-  el.hidden = !text;
-}
-
-function clearAuthMessage() {
-  showAuthMessage("", "");
-  document.getElementById("authMsg").hidden = true;
+  const v = authView().validateSignupFields({
+    name: document.getElementById("authName").value,
+    email: document.getElementById("authEmail").value,
+    password: document.getElementById("authPassword").value,
+  });
+  submit.disabled = !v.ok;
 }
 
 function setAuthLoading(loading) {
+  authLoading = loading;
+  const form = document.getElementById("authForm");
   const submit = document.getElementById("authSubmit");
-  submit.disabled = loading;
+  const seg = document.getElementById("authSeg");
+  const slow = document.getElementById("authSlowNote");
+  if (authSlowTimer) {
+    clearTimeout(authSlowTimer);
+    authSlowTimer = null;
+  }
+  if (form) form.classList.toggle("auth-form--loading", loading);
+  if (seg) {
+    seg.querySelectorAll("button").forEach((b) => {
+      b.disabled = loading;
+    });
+  }
+  if (!submit) return;
   if (loading) {
-    submit.textContent = "Please wait…";
+    submit.disabled = true;
+    submit.innerHTML = '<span class="auth-spin" aria-hidden="true"></span>' + authLoadingLabel();
+    authSlowTimer = setTimeout(() => {
+      if (slow) slow.hidden = false;
+    }, 3000);
     return;
   }
-  if (authMode === "forgot") submit.textContent = "Send reset link";
-  else if (authMode === "recovery") submit.textContent = "Save new password";
-  else if (authMode === "signup") submit.textContent = "Create account";
-  else submit.textContent = "Sign in";
+  if (slow) slow.hidden = true;
+  submit.innerHTML = authSubmitLabel();
+  refreshAuthSubmitEnabled();
+}
+
+function updateAuthResendNote() {
+  const note = document.getElementById("authResendNote");
+  const btn = document.getElementById("authResendBtn");
+  if (!note || !btn) return;
+  if (authResendCooldownSec > 0) {
+    const m = Math.floor(authResendCooldownSec / 60);
+    const s = authResendCooldownSec % 60;
+    note.textContent =
+      "Can resend in " + m + ":" + String(s).padStart(2, "0") + " · Check spam or Promotions too";
+    btn.disabled = true;
+  } else {
+    note.textContent = "Check spam or Promotions too";
+    btn.disabled = false;
+  }
+}
+
+function startAuthResendCooldown(seconds) {
+  authResendCooldownSec = seconds;
+  if (authResendCooldownTimer) clearInterval(authResendCooldownTimer);
+  updateAuthResendNote();
+  authResendCooldownTimer = setInterval(() => {
+    authResendCooldownSec = Math.max(0, authResendCooldownSec - 1);
+    updateAuthResendNote();
+    if (authResendCooldownSec <= 0 && authResendCooldownTimer) {
+      clearInterval(authResendCooldownTimer);
+      authResendCooldownTimer = null;
+    }
+  }, 1000);
+}
+
+function showCheckEmailPanel({ name, email }) {
+  authPendingCheckEmail = { name, email };
+  authMode = "checkEmail";
+  setAuthMode("checkEmail");
+}
+
+function setAuthMode(mode) {
+  authSuppressBlurValidation = true;
+  authMode = mode;
+  const panelForm = document.getElementById("authPanelForm");
+  const panelCheck = document.getElementById("authPanelCheckEmail");
+  const seg = document.getElementById("authSeg");
+  const backBtn = document.getElementById("authBackToSignIn");
+  const title = document.getElementById("authTitle");
+  const lead = document.getElementById("authLead");
+  const heading = document.getElementById("authHeading");
+  const nameField = document.getElementById("authNameField");
+  const emailField = document.getElementById("authEmailField");
+  const pwdField = document.getElementById("authPasswordField");
+  const confirmField = document.getElementById("authConfirmPasswordField");
+  const forgotWrap = document.getElementById("authForgotWrap");
+  const foot = document.getElementById("authFoot");
+  const forgotOk = document.getElementById("authForgotSuccess");
+  const pwdInput = document.getElementById("authPassword");
+  const pwdLabel = document.getElementById("authPasswordLabel");
+  const submit = document.getElementById("authSubmit");
+
+  const isCheck = mode === "checkEmail";
+  const isForgot = mode === "forgot";
+  const isRecovery = mode === "recovery";
+  const isSignup = mode === "signup";
+  const isSignin = mode === "signin";
+
+  setAuthCompact(!isCheck);
+  if (panelForm) panelForm.hidden = isCheck;
+  if (panelCheck) panelCheck.hidden = !isCheck;
+
+  if (isCheck && authPendingCheckEmail) {
+    const nm = authPendingCheckEmail.name || "there";
+    const em = authPendingCheckEmail.email || "";
+    document.getElementById("authCheckTitle").textContent = "Check your inbox, " + nm;
+    document.getElementById("authCheckLead").innerHTML =
+      "We sent a confirmation link to<br><span class=\"auth-email-pill\">" + esc(em) + "</span>";
+    updateAuthResendNote();
+    authSuppressBlurValidation = false;
+    return;
+  }
+
+  if (seg) seg.hidden = isForgot || isRecovery;
+  if (backBtn) backBtn.hidden = !isForgot;
+  if (heading) heading.hidden = false;
+  if (forgotOk) forgotOk.hidden = true;
+  resetAuthValidationState();
+  clearAuthBanner();
+
+  if (seg) {
+    document.getElementById("authSegSignIn").setAttribute("aria-selected", isSignin ? "true" : "false");
+    document.getElementById("authSegSignUp").setAttribute("aria-selected", isSignup ? "true" : "false");
+  }
+
+  const nameInput = document.getElementById("authName");
+  const emailInput = document.getElementById("authEmail");
+  const confirmInput = document.getElementById("authConfirmPassword");
+  if (nameField) nameField.hidden = !isSignup;
+  if (emailField) emailField.hidden = isRecovery;
+  if (pwdField) pwdField.hidden = isForgot;
+  if (confirmField) confirmField.hidden = !isRecovery;
+  if (nameInput) nameInput.disabled = !isSignup;
+  if (emailInput) emailInput.disabled = isRecovery;
+  if (pwdInput) pwdInput.disabled = isForgot;
+  if (confirmInput) confirmInput.disabled = !isRecovery;
+  if (forgotWrap) forgotWrap.hidden = !isSignin;
+  if (foot) {
+    foot.hidden = isForgot || isRecovery;
+    if (isSignin) {
+      foot.innerHTML =
+        'New here? <button type="button" class="auth-inline-link" data-auth-foot="signup">Create an account</button>';
+    } else if (isSignup) {
+      foot.innerHTML =
+        'Already have an account? <button type="button" class="auth-inline-link" data-auth-foot="signin">Sign in</button>';
+    }
+  }
+
+  if (title && lead) {
+    if (isForgot) {
+      title.textContent = "Reset your password";
+      lead.textContent =
+        "Enter the email you signed up with and we'll send you a link to choose a new password.";
+    } else if (isRecovery) {
+      title.textContent = "Choose a new password";
+      const em =
+        authRecoveryEmail ||
+        document.getElementById("authEmail").value.trim() ||
+        "your account";
+      lead.textContent = "For " + em;
+    } else if (isSignup) {
+      title.textContent = "Create your account";
+      lead.textContent = "Takes 30 seconds. Your expenses stay private to you.";
+    } else {
+      title.textContent = "Welcome back";
+      lead.textContent = "Sign in to see your spending across all your devices.";
+    }
+  }
+
+  if (pwdLabel) pwdLabel.textContent = isRecovery ? "New password" : "Password";
+  if (pwdInput) {
+    pwdInput.autocomplete = isSignin ? "current-password" : "new-password";
+    pwdInput.placeholder = isRecovery ? "Choose a new password" : isSignup ? "At least 8 characters" : "Enter your password";
+  }
+  if (emailInput) emailInput.autocomplete = isSignin ? "username" : "email";
+
+  if (submit && !authLoading) {
+    submit.innerHTML = authSubmitLabel();
+    refreshAuthSubmitEnabled();
+  }
+  updatePasswordMeter();
+
+  const focusId =
+    isSignup ? "authName" : isRecovery ? "authPassword" : isForgot ? "authEmail" : "authEmail";
+  const focusEl = document.getElementById(focusId);
+  const authScreenActive = document.getElementById("screen-auth").classList.contains("active");
+  if (focusEl && authScreenActive) {
+    setTimeout(() => {
+      focusEl.focus();
+      resetAuthValidationState();
+      authSuppressBlurValidation = false;
+    }, 0);
+  } else {
+    authSuppressBlurValidation = false;
+  }
+}
+
+function wirePasswordEye(toggleId, inputId) {
+  const eye = document.getElementById(toggleId);
+  if (!eye) return;
+  eye.addEventListener("click", () => {
+    const input = document.getElementById(inputId);
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    eye.setAttribute("aria-pressed", show ? "true" : "false");
+    eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    const ico = eye.querySelector("[data-ico]");
+    if (ico) {
+      delete ico.dataset.done;
+      ico.setAttribute("data-ico", show ? "eyeOff" : "eye");
+      paintIcons(eye);
+    }
+  });
+}
+
+function validateAuthFormInteractive(options) {
+  const submit = !!(options && options.submit);
+  const only = options && options.field;
+  const show = (key) => submit || authTouched[key] || only === key;
+  let ok = true;
+  clearAuthFieldErrors();
+
+  const email = document.getElementById("authEmail").value;
+  const password = document.getElementById("authPassword").value;
+
+  if (authMode === "signin") {
+    const em = authView().validateEmail(email);
+    if (!em.ok) {
+      if (show("email")) {
+        setAuthFieldError("authEmailField", "authEmailError", em.message);
+        ok = false;
+      } else ok = false;
+    }
+    if (!password) {
+      if (show("password")) {
+        setAuthFieldError("authPasswordField", "authPasswordError", "Enter your password.");
+        ok = false;
+      } else ok = false;
+    }
+    return ok;
+  }
+
+  if (authMode === "signup") {
+    const name = document.getElementById("authName").value;
+    const nm = authView().validateDisplayName(name);
+    if (!nm.ok) {
+      if (show("name")) {
+        setAuthFieldError("authNameField", "authNameError", nm.message);
+        ok = false;
+      } else ok = false;
+    }
+    const em = authView().validateEmail(email);
+    if (!em.ok) {
+      if (show("email")) {
+        setAuthFieldError("authEmailField", "authEmailError", em.message);
+        ok = false;
+      } else ok = false;
+    }
+    const pw = authView().validateSignupPassword(password);
+    if (!pw.ok) {
+      if (show("password")) {
+        setAuthFieldError("authPasswordField", "authPasswordError", pw.message);
+        ok = false;
+      } else ok = false;
+    }
+    return ok;
+  }
+
+  if (authMode === "recovery") {
+    const confirm = document.getElementById("authConfirmPassword").value;
+    const pw = authView().validateSignupPassword(password);
+    if (!pw.ok) {
+      if (show("password")) {
+        setAuthFieldError("authPasswordField", "authPasswordError", pw.message);
+        ok = false;
+      } else ok = false;
+    }
+    if (password !== confirm) {
+      if (show("confirm")) {
+        setAuthFieldError("authConfirmPasswordField", "authConfirmPasswordError", "Passwords don't match.");
+        ok = false;
+      } else ok = false;
+    }
+    return ok;
+  }
+
+  if (authMode === "forgot") {
+    const em = authView().validateEmail(email);
+    if (!em.ok) {
+      if (show("email")) {
+        setAuthFieldError("authEmailField", "authEmailError", em.message);
+        ok = false;
+      } else ok = false;
+    }
+    return ok;
+  }
+  return true;
 }
 
 async function handleAuthSubmit(e) {
   e.preventDefault();
-  clearAuthMessage();
+  clearAuthBanner();
+  if (!validateAuthFormInteractive({ submit: true })) {
+    refreshAuthSubmitEnabled();
+    return;
+  }
 
   const email = document.getElementById("authEmail").value.trim();
   const password = document.getElementById("authPassword").value;
-  const newPassword = document.getElementById("authNewPassword").value;
-
-  if (!email && authMode !== "recovery") {
-    showAuthMessage("Enter your email address.", "error");
-    return;
-  }
+  const displayName = document.getElementById("authName").value;
 
   setAuthLoading(true);
   try {
     if (authMode === "forgot") {
       await window.SpendAuth.resetPasswordForEmail(email);
-      showAuthMessage(
-        "If an account exists for that email, a reset link is on its way. Check your inbox.",
-        "ok"
-      );
+      const ok = document.getElementById("authForgotSuccess");
+      if (ok) ok.hidden = false;
       return;
     }
 
     if (authMode === "recovery") {
-      if (newPassword.length < 6) {
-        showAuthMessage("Enter a password with at least 6 characters.", "error");
-        return;
-      }
-      await window.SpendAuth.updatePassword(newPassword);
+      await window.SpendAuth.updatePassword(password);
       passwordRecovery = false;
-      document.getElementById("authNewPassword").value = "";
+      document.getElementById("authPassword").value = "";
+      document.getElementById("authConfirmPassword").value = "";
       showToast("Password updated.");
       const session = await window.SpendAuth.getSession();
       if (session) await enterApp(session);
@@ -2524,102 +2954,128 @@ async function handleAuthSubmit(e) {
       return;
     }
 
-    if (password.length < 6) {
-      showAuthMessage("Enter a valid email and a password with at least 6 characters.", "error");
-      return;
-    }
-
     if (authMode === "signup") {
-      const data = await window.SpendAuth.signUp(email, password);
-      if (data.user && data.user.identities && data.user.identities.length === 0) {
+      const data = await window.SpendAuth.signUp(email, password, displayName);
+      const outcome = authView().interpretSignupResponse(data);
+      document.getElementById("authPassword").value = "";
+      if (outcome.outcome === "already_registered") {
         setAuthMode("signin");
-        showAuthMessage(
+        showAuthBanner(
           "You already have an account with this email. Sign in or reset your password.",
           "error"
         );
         return;
       }
-      document.getElementById("authPassword").value = "";
-      if (data.session) {
+      if (outcome.outcome === "session") {
         await enterApp(data.session);
-      } else {
-        setAuthMode("signin");
-        showAuthMessage("Account created. Check your email to confirm, then sign in.", "ok");
+        return;
       }
-    } else {
-      const data = await window.SpendAuth.signIn(email, password);
-      await enterApp(data.session);
+      showCheckEmailPanel({
+        name: authView().trimName(displayName) || "there",
+        email,
+      });
+      startAuthResendCooldown(60);
+      return;
     }
+
+    const data = await window.SpendAuth.signIn(email, password);
+    await enterApp(data.session);
   } catch (err) {
-    const friendly = friendlyAuthError(err);
-    showAuthMessage(friendly, "error");
-    if (/confirm your email/i.test(friendly)) showAuthResend(email);
+    const mapped = authView().mapAuthError(err);
+    showAuthBanner(mapped.banner, "error", { resend: mapped.resend });
   } finally {
     setAuthLoading(false);
   }
 }
 
 async function handleLogout() {
+  closeAccountMenu();
   try {
     await window.SpendAuth.signOut();
+  } catch {
+    window.SpendAuth.clearLocalSession();
+  }
+  currentUser = null;
+  appReady = false;
+  passwordRecovery = false;
+  authPendingCheckEmail = null;
+  authRecoveryEmail = "";
+  showAuthScreen();
+  setAuthMode("signin");
+}
+window.handleLogout = handleLogout;
+
+async function resendSignupEmail(email) {
+  if (!email) return;
+  if (authResendCooldownSec > 0) return;
+  setAuthLoading(true);
+  try {
+    await window.SpendAuth.resendSignup(email);
+    startAuthResendCooldown(60);
+    if (authMode === "checkEmail") showAuthBanner("Confirmation email sent. Check your inbox.", "ok");
+    else showAuthBanner("Confirmation email sent. Check your inbox.", "ok");
   } catch (err) {
-    showToast(err.message || "Could not sign out.");
+    showAuthBanner(authView().mapAuthError(err).banner, "error");
+  } finally {
+    setAuthLoading(false);
   }
 }
 
 function wireAuthForm() {
   document.getElementById("authForm").addEventListener("submit", handleAuthSubmit);
-  document.getElementById("authToggle").addEventListener("click", () => {
-    setAuthMode(authMode === "signin" ? "signup" : "signin");
+  document.getElementById("authSegSignIn").addEventListener("click", () => setAuthMode("signin"));
+  document.getElementById("authSegSignUp").addEventListener("click", () => setAuthMode("signup"));
+  document.getElementById("authForgotLink").addEventListener("click", () => setAuthMode("forgot"));
+  document.getElementById("authBackToSignIn").addEventListener("click", () => setAuthMode("signin"));
+  document.getElementById("authResendBtn").addEventListener("click", () => {
+    const email =
+      (authPendingCheckEmail && authPendingCheckEmail.email) ||
+      document.getElementById("authEmail").value.trim();
+    void resendSignupEmail(email);
   });
-  const forgot = document.getElementById("authForgotLink");
-  if (forgot) {
-    forgot.addEventListener("click", () => setAuthMode("forgot"));
-  }
-  const back = document.getElementById("authBackToSignIn");
-  if (back) {
-    back.addEventListener("click", () => setAuthMode("signin"));
-  }
-  const resend = document.getElementById("authResendBtn");
-  if (resend) {
-    resend.addEventListener("click", async () => {
-      const email = resend.dataset.email || document.getElementById("authEmail").value.trim();
-      if (!email) {
-        showAuthMessage("Enter your email address first.", "error");
-        return;
-      }
-      setAuthLoading(true);
-      try {
-        await window.SpendAuth.resendSignup(email);
-        showAuthMessage("Confirmation email sent. Check your inbox.", "ok");
-      } catch (err) {
-        showAuthMessage(friendlyAuthError(err), "error");
-      } finally {
-        setAuthLoading(false);
-      }
-    });
-  }
-  const eye = document.getElementById("authPasswordToggle");
-  if (eye) {
-    eye.addEventListener("click", () => {
-      const input = document.getElementById("authPassword");
-      const show = input.type === "password";
-      input.type = show ? "text" : "password";
-      eye.setAttribute("aria-pressed", show ? "true" : "false");
-      eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
-      const ico = eye.querySelector("[data-ico]");
-      if (ico) {
-        delete ico.dataset.done;
-        ico.setAttribute("data-ico", show ? "eyeOff" : "eye");
-        paintIcons(eye);
-      }
-    });
-  }
+  document.getElementById("authWrongEmailBtn").addEventListener("click", () => {
+    authPendingCheckEmail = null;
+    setAuthMode("signup");
+  });
+  document.getElementById("authOpenMailBtn").addEventListener("click", () => {
+    window.location.href = "mailto:";
+  });
+  document.getElementById("authPanelForm").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-auth-foot]");
+    if (!btn) return;
+    setAuthMode(btn.dataset.authFoot === "signup" ? "signup" : "signin");
+  });
+  wirePasswordEye("authPasswordToggle", "authPassword");
+  wirePasswordEye("authConfirmPasswordToggle", "authConfirmPassword");
+
+  const onInput = () => {
+    updatePasswordMeter();
+    refreshAuthSubmitEnabled();
+  };
+  ["authName", "authEmail", "authPassword", "authConfirmPassword"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener("input", onInput);
+      el.addEventListener("blur", () => {
+        if (authSuppressBlurValidation) return;
+        const key = authInputTouchedKey(id);
+        if (!key) return;
+        authTouched[key] = true;
+        if (authMode === "signup" || authMode === "signin" || authMode === "forgot" || authMode === "recovery") {
+          validateAuthFormInteractive({ field: key });
+        }
+        refreshAuthSubmitEnabled();
+        updatePasswordMeter();
+      });
+    }
+  });
+  setAuthMode("signin");
 }
 
 async function bootstrap() {
   setAppLoading(true);
   wireAuthForm();
+  wireDisplayNameForm();
   wireAccountMenu();
   wireOnlineSync();
   paintIcons(document);
@@ -2641,11 +3097,12 @@ async function bootstrap() {
     if (!session) session = window.SpendAuth.getStoredSession();
     booted = true;
     clearTimeout(fallback);
-    if (session && passwordRecovery) showRecoveryScreen();
+    if (session && passwordRecovery) showRecoveryScreen(session);
     else if (session) void enterApp(session);
     else showAuthScreen();
   };
-  const showRecoveryScreen = () => {
+  const showRecoveryScreen = (session) => {
+    authRecoveryEmail = (session && session.user && session.user.email) || "";
     showAuthScreen();
     setAuthMode("recovery");
   };
@@ -2675,7 +3132,7 @@ async function bootstrap() {
       passwordRecovery = true;
       booted = true;
       clearTimeout(fallback);
-      showRecoveryScreen();
+      showRecoveryScreen(session);
       return;
     }
     if (event === "INITIAL_SESSION") {
