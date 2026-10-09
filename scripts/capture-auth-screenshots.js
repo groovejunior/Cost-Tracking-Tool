@@ -79,8 +79,7 @@ async function shot(page, name) {
 
   await page.evaluate(() => {
     setAuthMode("signin");
-    showAuthBanner("That email and password don't match. Try again or reset your password.", "error");
-    document.getElementById("authResendConfirmFoot").hidden = false;
+    showAuthBanner("Please confirm your email first.", "error", { resend: true });
   });
   await page.waitForTimeout(200);
   await shot(page, "auth-06-error-banner.png");
@@ -104,6 +103,15 @@ async function shot(page, name) {
   });
   await page.waitForTimeout(200);
   await shot(page, "auth-08-loading.png");
+
+  await page.evaluate(() => {
+    document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+    document.getElementById("screen-display-name").classList.add("active");
+    document.getElementById("app").classList.add("auth-mode");
+    showDisplayNameScreen();
+  });
+  await page.waitForTimeout(200);
+  await shot(page, "auth-09-display-name.png");
 
   await browser.close();
   server.close();

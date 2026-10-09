@@ -142,6 +142,12 @@ function interpretSignupResponse(data) {
   return { outcome: "check_email" };
 }
 
+function userHasDisplayName(user) {
+  if (!user) return false;
+  const meta = user.user_metadata || user.raw_user_meta_data || {};
+  return !!trimName(meta.display_name || meta.full_name || "");
+}
+
 function accountLabelFromUser(user) {
   if (!user) return "";
   const meta = user.user_metadata || user.raw_user_meta_data || {};
@@ -167,6 +173,7 @@ const SpendAuthView = {
   validateRecoveryFields,
   mapAuthError,
   interpretSignupResponse,
+  userHasDisplayName,
   accountLabelFromUser,
   accountInitialFromLabel,
 };

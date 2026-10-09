@@ -145,10 +145,6 @@
               <button type="submit" class="savebtn" id="authSubmit">Sign in</button>
             </form>
             <p class="auth-foot" id="authFoot" hidden></p>
-            <p class="auth-foot" id="authResendConfirmFoot" hidden>
-              Email not confirmed yet?
-              <button type="button" class="auth-inline-link" id="authResendConfirmLink">Resend confirmation</button>
-            </p>
             <div class="auth-forgot-success" id="authForgotSuccess" hidden role="status" aria-live="polite">
               ✓ If an account exists for that email, a reset link is on its way. It expires in 1 hour.
             </div>
@@ -171,6 +167,38 @@
               <button type="button" class="auth-inline-link" id="authWrongEmailBtn">Wrong email? Start again</button>
             </p>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- One-time display name (existing accounts without user_metadata.display_name) -->
+  <section class="screen" id="screen-display-name">
+    <div class="auth auth--hybrid auth--compact">
+      <div class="auth-brand-zone">
+        <div class="brand-lockup">
+          <img class="brand-mark" src="./assets/brand-mark.svg" width="80" height="125" alt="" aria-hidden="true">
+          <div class="brand-wordmark">Spend</div>
+        </div>
+      </div>
+      <div class="auth-dock">
+        <div class="auth-dock-inner">
+          <div class="auth-heading">
+            <h2 class="auth-title">What should we call you?</h2>
+            <p class="auth-lead">We use this for your avatar and when friends join shared groups later.</p>
+          </div>
+          <form id="displayNameForm" class="auth-form" novalidate>
+            <div class="field" id="displayNameField">
+              <label class="fl" for="displayNameInput">Your name</label>
+              <div class="auth-input">
+                <span class="auth-input-ico" data-ico="user" aria-hidden="true"></span>
+                <input class="noteinput" type="text" id="displayNameInput" name="name" autocomplete="given-name"
+                       maxlength="40" placeholder="Your first name" aria-describedby="displayNameError">
+              </div>
+              <p class="auth-field-error" id="displayNameError" hidden aria-live="polite"></p>
+            </div>
+            <button type="submit" class="savebtn" id="displayNameSubmit">Save</button>
+          </form>
         </div>
       </div>
     </div>

@@ -19,7 +19,10 @@ input{font-family:inherit;}
   padding-top:env(safe-area-inset-top,0px);}
 .app.modal .nav{display:none;}
 .app.auth-mode .nav{display:none;}
-.app.auth-mode{padding-top:0;}
+.app.auth-mode{padding-top:0;background:#000;}
+.app.auth-mode #screen-auth.active,
+.app.auth-mode #screen-setup.active,
+.app.auth-mode #screen-display-name.active{flex:1;min-height:0;background:#000;}
 .app.signed-in #screen-home .topbar,
 .app.signed-in #screen-list .topbar,
 .app.signed-in #screen-analyse .topbar,
@@ -201,9 +204,9 @@ input{font-family:inherit;}
 
 /* auth — Cool Stone hero + hard black dock (matches mockup split) */
 .auth{flex:1;display:flex;flex-direction:column;min-height:0;width:100%;}
-.auth--hybrid{justify-content:stretch;}
+.auth--hybrid{flex:1;min-height:0;justify-content:flex-end;}
 .auth-brand-zone{
-  flex:1 1 48%;display:flex;align-items:center;justify-content:center;
+  flex:1 1 auto;display:flex;align-items:center;justify-content:center;
   padding:28px 24px 24px;padding-top:calc(36px + env(safe-area-inset-top,0px));
   min-height:180px;position:relative;overflow:hidden;width:100%;
   background-color:#F0F1F3;
@@ -222,12 +225,13 @@ input{font-family:inherit;}
 .auth--hybrid.auth--compact .brand-wordmark{font-size:32px;}
 .auth--hybrid.auth--compact .brand-tagline{display:none;}
 .auth-dock{
-  flex:0 0 auto;width:100%;background:#000;color:#F5F5F5;
+  flex:1 1 0;width:100%;background:#000;color:#F5F5F5;
   border-radius:22px 22px 0 0;margin-top:-18px;position:relative;
   padding:22px 22px calc(22px + var(--safe-b));
-  min-height:0;
+  min-height:0;display:flex;flex-direction:column;
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
 }
-.auth-dock-inner{max-width:360px;margin:0 auto;width:100%;}
+.auth-dock-inner{max-width:360px;margin:0 auto;width:100%;flex:1;display:flex;flex-direction:column;}
 .auth-panel{display:flex;flex-direction:column;min-height:0;}
 .auth-seg{
   display:grid;grid-template-columns:1fr 1fr;background:#161616;border:1px solid #2A2A2A;

@@ -35,6 +35,8 @@ check(
   "signup already registered",
   av.interpretSignupResponse({ user: { identities: [] } }).outcome === "already_registered"
 );
+check("user has display name", av.userHasDisplayName({ email: "a@b.co", user_metadata: { display_name: "Mia" } }));
+check("user missing display name", !av.userHasDisplayName({ email: "a@b.co", user_metadata: {} }));
 check("display name from metadata", av.accountLabelFromUser({ email: "a@b.co", user_metadata: { display_name: "Mia" } }) === "Mia");
 check("initial from display name", av.accountInitialFromLabel("Mia") === "M");
 

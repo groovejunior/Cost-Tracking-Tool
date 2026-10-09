@@ -1135,6 +1135,23 @@ let authResendCooldownTimer = null;
 let authResendCooldownSec = 0;
 let authPendingCheckEmail = null;
 let authRecoveryEmail = "";
+const authTouched = { name: false, email: false, password: false, confirm: false };
+
+function resetAuthValidationState() {
+  authTouched.name = false;
+  authTouched.email = false;
+  authTouched.password = false;
+  authTouched.confirm = false;
+  clearAuthFieldErrors();
+}
+
+function authInputTouchedKey(inputId) {
+  if (inputId === "authName") return "name";
+  if (inputId === "authEmail") return "email";
+  if (inputId === "authPassword") return "password";
+  if (inputId === "authConfirmPassword") return "confirm";
+  return null;
+}
 let filter = "all";
 let listQuery = "";
 let openRow = null;
@@ -2368,6 +2385,50 @@ async function syncCloudInBackground() {
   }
 }
 
+function shouldPromptDisplayName() {
+  return (
+    useCloud() &&
+    currentUser &&
+    !passwordRecovery &&
+    authView() &&
+    !authView().userHasDisplayName(currentUser)
+  );
+}
+
+function showDisplayNameScreen() {
+  setAppLoading(false);
+  appReady = false;
+  const app = document.getElementById("app");
+  app.classList.add("auth-mode");
+  app.classList.remove("modal");
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  document.getElementById("screen-display-name").classList.add("active");
+  const input = document.getElementById("displayNameInput");
+  const err = document.getElementById("displayNameError");
+  const field = document.getElementById("displayNameField");
+  if (input) input.value = "";
+  if (err) {
+    err.textContent = "";
+    err.hidden = true;
+  }
+  if (field) field.classList.remove("field--error");
+  paintIcons(document.getElementById("screen-display-name"));
+  if (input) setTimeout(() => input.focus(), 0);
+}
+
+async function completeAppEntry() {
+  paintSignedInApp();
+  setAppLoading(false);
+  void syncCloudInBackground();
+  void loadUserSettings(currentUser?.id)
+    .then(() => loadCategories(currentUser?.id))
+    .then(() => window.SpendRates.ensureForExpenses(expenses))
+    .then((updated) => {
+      if (updated && currentScreen === "home") renderHome();
+    })
+    .catch((e) => console.warn("[Spend] Background sync:", e.message));
+}
+
 async function enterApp(session) {
   const user = session ? session.user : null;
   if (appReady && currentUser && user && currentUser.id === user.id) return;
@@ -2378,22 +2439,17 @@ async function enterApp(session) {
   setAppLoading(true);
   try {
     applyLocalUserState();
-    paintSignedInApp();
-    setAppLoading(false);
-    void syncCloudInBackground();
-    void loadUserSettings(currentUser?.id)
-      .then(() => loadCategories(currentUser?.id))
-      .then(() => window.SpendRates.ensureForExpenses(expenses))
-      .then((updated) => {
-        if (updated && currentScreen === "home") renderHome();
-      })
-      .catch((e) => console.warn("[Spend] Background sync:", e.message));
+    if (shouldPromptDisplayName() && navigator.onLine) {
+      showDisplayNameScreen();
+      return;
+    }
+    await completeAppEntry();
   } catch (err) {
     showToast(err.message || "Could not load your expenses.");
     if (currentUser) {
       try {
         applyLocalUserState();
-        paintSignedInApp();
+        await completeAppEntry();
       } catch (e) {
         showAuthScreen();
         appReady = false;
@@ -2406,6 +2462,49 @@ async function enterApp(session) {
     setAppLoading(false);
     enterAppRunning = false;
   }
+}
+
+async function handleDisplayNameSubmit(e) {
+  e.preventDefault();
+  const input = document.getElementById("displayNameInput");
+  const field = document.getElementById("displayNameField");
+  const err = document.getElementById("displayNameError");
+  const v = authView().validateDisplayName(input ? input.value : "");
+  if (!v.ok) {
+    if (field) field.classList.add("field--error");
+    if (err) {
+      err.textContent = v.message;
+      err.hidden = false;
+    }
+    return;
+  }
+  if (field) field.classList.remove("field--error");
+  if (err) err.hidden = true;
+  const submit = document.getElementById("displayNameSubmit");
+  if (submit) submit.disabled = true;
+  try {
+    const data = await window.SpendAuth.updateDisplayName(v.value);
+    if (data && data.user) currentUser = data.user;
+    updateAccountMenu();
+    enterAppRunning = true;
+    await completeAppEntry();
+  } catch (saveErr) {
+    console.warn("[Spend] Could not save display name:", saveErr.message);
+    showToast("Could not save your name right now. You can try again next time you open Spend.");
+    enterAppRunning = true;
+    await completeAppEntry();
+  } finally {
+    if (submit) submit.disabled = false;
+    enterAppRunning = false;
+  }
+}
+
+function wireDisplayNameForm() {
+  const form = document.getElementById("displayNameForm");
+  if (!form) return;
+  form.addEventListener("submit", (e) => {
+    void handleDisplayNameSubmit(e);
+  });
 }
 
 function authView() {
@@ -2445,18 +2544,35 @@ function setAuthFieldError(fieldId, errorId, message) {
   }
 }
 
-function showAuthBanner(text, type) {
+function showAuthBanner(text, type, options) {
   const el = document.getElementById("authBanner");
   if (!el) return;
-  el.textContent = text ? (type === "error" ? "! " + text : "✓ " + text) : "";
+  const opts = options || {};
   el.className = "auth-banner " + (type || "error");
-  el.hidden = !text;
+  if (!text) {
+    el.textContent = "";
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  if (opts.resend) {
+    el.innerHTML =
+      "! " +
+      esc(text) +
+      ' <button type="button" class="auth-inline-link" id="authBannerResend">Resend confirmation</button>';
+    const btn = document.getElementById("authBannerResend");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        void resendSignupEmail(document.getElementById("authEmail").value.trim());
+      });
+    }
+    return;
+  }
+  el.textContent = type === "error" ? "! " + text : "✓ " + text;
 }
 
 function clearAuthBanner() {
   showAuthBanner("", "");
-  const foot = document.getElementById("authResendConfirmFoot");
-  if (foot) foot.hidden = true;
 }
 
 function updatePasswordMeter() {
@@ -2473,7 +2589,11 @@ function updatePasswordMeter() {
     bar.classList.toggle("on", i < segments);
   });
   help.textContent = label;
-  help.classList.toggle("auth-field-error", authView().passwordStrength(pwd.value).weak);
+  const weak = authView().passwordStrength(pwd.value).weak;
+  help.classList.toggle(
+    "auth-field-error",
+    weak && (authTouched.password || authMode === "recovery")
+  );
 }
 
 function authSubmitLabel() {
@@ -2615,7 +2735,7 @@ function setAuthMode(mode) {
   if (backBtn) backBtn.hidden = !isForgot;
   if (heading) heading.hidden = false;
   if (forgotOk) forgotOk.hidden = true;
-  clearAuthFieldErrors();
+  resetAuthValidationState();
   clearAuthBanner();
 
   if (seg) {
@@ -2706,58 +2826,86 @@ function wirePasswordEye(toggleId, inputId) {
   });
 }
 
-function validateAuthFormInteractive() {
+function validateAuthFormInteractive(options) {
+  const submit = !!(options && options.submit);
+  const only = options && options.field;
+  const show = (key) => submit || authTouched[key] || only === key;
+  let ok = true;
   clearAuthFieldErrors();
+
   const email = document.getElementById("authEmail").value;
   const password = document.getElementById("authPassword").value;
+
   if (authMode === "signin") {
     const em = authView().validateEmail(email);
     if (!em.ok) {
-      setAuthFieldError("authEmailField", "authEmailError", em.message);
-      return false;
+      if (show("email")) {
+        setAuthFieldError("authEmailField", "authEmailError", em.message);
+        ok = false;
+      } else ok = false;
     }
     if (!password) {
-      setAuthFieldError("authPasswordField", "authPasswordError", "Enter your password.");
-      return false;
+      if (show("password")) {
+        setAuthFieldError("authPasswordField", "authPasswordError", "Enter your password.");
+        ok = false;
+      } else ok = false;
     }
-    return true;
+    return ok;
   }
+
   if (authMode === "signup") {
-    const v = authView().validateSignupFields({
-      name: document.getElementById("authName").value,
-      email,
-      password,
-    });
-    if (!v.ok) {
-      if (/call you/i.test(v.message)) setAuthFieldError("authNameField", "authNameError", v.message);
-      else if (/email|mean/i.test(v.message)) setAuthFieldError("authEmailField", "authEmailError", v.message);
-      else setAuthFieldError("authPasswordField", "authPasswordError", v.message);
-      return false;
+    const name = document.getElementById("authName").value;
+    const nm = authView().validateDisplayName(name);
+    if (!nm.ok) {
+      if (show("name")) {
+        setAuthFieldError("authNameField", "authNameError", nm.message);
+        ok = false;
+      } else ok = false;
     }
-    return true;
+    const em = authView().validateEmail(email);
+    if (!em.ok) {
+      if (show("email")) {
+        setAuthFieldError("authEmailField", "authEmailError", em.message);
+        ok = false;
+      } else ok = false;
+    }
+    const pw = authView().validateSignupPassword(password);
+    if (!pw.ok) {
+      if (show("password")) {
+        setAuthFieldError("authPasswordField", "authPasswordError", pw.message);
+        ok = false;
+      } else ok = false;
+    }
+    return ok;
   }
+
   if (authMode === "recovery") {
-    const v = authView().validateRecoveryFields({
-      password,
-      confirm: document.getElementById("authConfirmPassword").value,
-    });
-    if (!v.ok) {
-      if (/match/i.test(v.message)) {
-        setAuthFieldError("authConfirmPasswordField", "authConfirmPasswordError", v.message);
-      } else {
-        setAuthFieldError("authPasswordField", "authPasswordError", v.message);
-      }
-      return false;
+    const confirm = document.getElementById("authConfirmPassword").value;
+    const pw = authView().validateSignupPassword(password);
+    if (!pw.ok) {
+      if (show("password")) {
+        setAuthFieldError("authPasswordField", "authPasswordError", pw.message);
+        ok = false;
+      } else ok = false;
     }
-    return true;
+    if (password !== confirm) {
+      if (show("confirm")) {
+        setAuthFieldError("authConfirmPasswordField", "authConfirmPasswordError", "Passwords don't match.");
+        ok = false;
+      } else ok = false;
+    }
+    return ok;
   }
+
   if (authMode === "forgot") {
     const em = authView().validateEmail(email);
     if (!em.ok) {
-      setAuthFieldError("authEmailField", "authEmailError", em.message);
-      return false;
+      if (show("email")) {
+        setAuthFieldError("authEmailField", "authEmailError", em.message);
+        ok = false;
+      } else ok = false;
     }
-    return true;
+    return ok;
   }
   return true;
 }
@@ -2765,7 +2913,7 @@ function validateAuthFormInteractive() {
 async function handleAuthSubmit(e) {
   e.preventDefault();
   clearAuthBanner();
-  if (!validateAuthFormInteractive()) {
+  if (!validateAuthFormInteractive({ submit: true })) {
     refreshAuthSubmitEnabled();
     return;
   }
@@ -2823,11 +2971,7 @@ async function handleAuthSubmit(e) {
     await enterApp(data.session);
   } catch (err) {
     const mapped = authView().mapAuthError(err);
-    showAuthBanner(mapped.banner, "error");
-    if (mapped.resend) {
-      const foot = document.getElementById("authResendConfirmFoot");
-      if (foot) foot.hidden = false;
-    }
+    showAuthBanner(mapped.banner, "error", { resend: mapped.resend });
   } finally {
     setAuthLoading(false);
   }
@@ -2878,9 +3022,6 @@ function wireAuthForm() {
       document.getElementById("authEmail").value.trim();
     void resendSignupEmail(email);
   });
-  document.getElementById("authResendConfirmLink").addEventListener("click", () => {
-    void resendSignupEmail(document.getElementById("authEmail").value.trim());
-  });
   document.getElementById("authWrongEmailBtn").addEventListener("click", () => {
     authPendingCheckEmail = null;
     setAuthMode("signup");
@@ -2905,8 +3046,14 @@ function wireAuthForm() {
     if (el) {
       el.addEventListener("input", onInput);
       el.addEventListener("blur", () => {
-        if (authMode === "signup" || authMode === "signin") validateAuthFormInteractive();
+        const key = authInputTouchedKey(id);
+        if (!key) return;
+        authTouched[key] = true;
+        if (authMode === "signup" || authMode === "signin" || authMode === "forgot" || authMode === "recovery") {
+          validateAuthFormInteractive({ field: key });
+        }
         refreshAuthSubmitEnabled();
+        updatePasswordMeter();
       });
     }
   });
@@ -2916,6 +3063,7 @@ function wireAuthForm() {
 async function bootstrap() {
   setAppLoading(true);
   wireAuthForm();
+  wireDisplayNameForm();
   wireAccountMenu();
   wireOnlineSync();
   paintIcons(document);

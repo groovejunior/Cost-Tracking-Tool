@@ -104,6 +104,16 @@ const SpendAuth = {
     if (error) throw error;
   },
 
+  /** Save display name in user metadata (one-time prompt for older accounts). */
+  async updateDisplayName(displayName) {
+    const name = (displayName || "").trim();
+    const { data, error } = await window.spendSupabase.auth.updateUser({
+      data: { display_name: name },
+    });
+    if (error) throw error;
+    return data;
+  },
+
   /** Resend the sign-up confirmation email. */
   async resendSignup(email) {
     const { error } = await window.spendSupabase.auth.resend({
