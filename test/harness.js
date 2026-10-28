@@ -12,6 +12,7 @@ const vm = require("vm");
 const { webcrypto } = require("crypto");
 
 const APP_SRC = fs.readFileSync(process.env.SPEND_APP_JS || path.join(__dirname, "..", "app.js"), "utf8");
+const CURRENCY_SRC = fs.readFileSync(path.join(__dirname, "..", "currency.js"), "utf8");
 
 function makeElement(id) {
   const store = {
@@ -276,6 +277,7 @@ async function bootApp({ server, storage, user, online = true, signIn = true, au
   ctx.showToastHook = (m) => toasts.push(m);
 
   vm.createContext(ctx);
+  vm.runInContext(CURRENCY_SRC, ctx, { filename: "currency.js" });
   vm.runInContext(APP_SRC, ctx, { filename: "app.js" });
 
   const app = {

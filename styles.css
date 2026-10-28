@@ -277,6 +277,11 @@ input{font-family:inherit;}
 .budget-field{display:flex;align-items:center;gap:10px;border:1px solid var(--hair);border-radius:12px;
   background:var(--paper);padding:4px 4px 4px 14px;}
 .budget-cur{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;}
+.currency-seg{display:flex;gap:8px;margin-top:4px;}
+.currency-opt{flex:1;border:1px solid var(--hair-strong);background:var(--card);border-radius:12px;
+  padding:12px 10px;font-size:15px;font-weight:600;color:var(--ink);cursor:pointer;}
+.currency-opt.active{background:var(--ink);border-color:var(--ink);color:#fff;}
+.currency-opt:active{opacity:.9;}
 .budget-input{flex:1;border:none;background:none;font-size:22px;font-weight:650;letter-spacing:-.02em;
   color:var(--ink);outline:none;padding:10px 8px;min-width:0;}
 .account-card .settings-save{margin-top:14px;padding:14px;}
@@ -498,6 +503,8 @@ input{font-family:inherit;}
 .confirm-btn--ghost:active{background:var(--hair);}
 .confirm-btn--danger{background:var(--over);color:#fff;}
 .confirm-btn--danger:active{opacity:.88;}
+.confirm-btn--primary{background:var(--ink);color:#fff;}
+.confirm-btn--primary:active{opacity:.88;}
 .load-screen{
   position:absolute;inset:0;z-index:100;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:28px;padding:24px;

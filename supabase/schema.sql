@@ -58,7 +58,7 @@ create index if not exists categories_user_sort_idx
 create table if not exists public.user_settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
   variable_budget numeric(10, 2) not null default 1000,
-  currency text not null default 'AUD',
+  currency text not null default 'AUD' check (currency in ('AUD', 'EUR')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
