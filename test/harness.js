@@ -12,8 +12,12 @@ const vm = require("vm");
 const { webcrypto } = require("crypto");
 
 const APP_SRC = fs.readFileSync(process.env.SPEND_APP_JS || path.join(__dirname, "..", "app.js"), "utf8");
+const AUTH_VIEW_SRC =
+  fs.readFileSync(path.join(__dirname, "..", "auth-view.js"), "utf8") +
+  ";if(typeof window!=='undefined')window.SpendAuthView=SpendAuthView;";
 
-function makeElement(id) {
+function makeElement(id, docState) {
+  const listeners = {};
   const store = {
     id: id || "",
     hidden: false,
@@ -25,6 +29,26 @@ function makeElement(id) {
     type: "text",
     dataset: {},
     style: {},
+    addEventListener(type, fn) {
+      (listeners[type] = listeners[type] || []).push(fn);
+    },
+    removeEventListener(type, fn) {
+      const list = listeners[type];
+      if (!list) return;
+      const i = list.indexOf(fn);
+      if (i >= 0) list.splice(i, 1);
+    },
+    requestSubmit() {
+      const evt = { preventDefault() {}, type: "submit" };
+      (listeners.submit || []).forEach((fn) => fn(evt));
+    },
+    focus() {
+      if (docState && docState.focusedEl && docState.focusedEl !== store) {
+        (docState.focusedEl.__listeners?.blur || []).forEach((fn) => fn());
+      }
+      if (docState) docState.focusedEl = store;
+    },
+    __listeners: listeners,
     classList: {
       _s: new Set(),
       add(...c) { c.forEach((x) => this._s.add(x)); },
@@ -58,22 +82,40 @@ function makeElement(id) {
   });
 }
 
+function screenEls(els) {
+  return [...els.values()].filter((e) => e.id && String(e.id).startsWith("screen-"));
+}
+
 function makeDocument() {
   const els = new Map();
-  return {
+  const docState = { focusedEl: null };
+  const doc = {
     visibilityState: "visible",
     getElementById(id) {
-      if (!els.has(id)) els.set(id, makeElement(id));
+      if (!els.has(id)) els.set(id, makeElement(id, docState));
       return els.get(id);
     },
-    querySelector: () => null,
-    querySelectorAll: () => [],
+    querySelector(sel) {
+      if (sel === ".screen.active") {
+        return screenEls(els).find((e) => e.classList.contains("active")) || null;
+      }
+      if (sel === "#screen-auth .auth--hybrid") {
+        const auth = els.get("screen-auth");
+        return auth || null;
+      }
+      return null;
+    },
+    querySelectorAll(sel) {
+      if (sel === ".screen") return screenEls(els);
+      return [];
+    },
     addEventListener() {},
     removeEventListener() {},
     createElement: (tag) => makeElement(tag),
-    body: makeElement("body"),
-    documentElement: makeElement("html"),
+    body: makeElement("body", docState),
+    documentElement: makeElement("html", docState),
   };
+  return doc;
 }
 
 function deferred() {
@@ -185,7 +227,15 @@ function makeSpendData(server) {
  * (expired token, refresh failed offline) but the session is still saved;
  * "none" = signed out / rejected, nothing saved.
  */
-async function bootApp({ server, storage, user, online = true, signIn = true, auth = "ok" }) {
+async function bootApp({
+  server,
+  storage,
+  user,
+  online = true,
+  signIn = true,
+  auth = "ok",
+  userMetadata = { display_name: "Tester" },
+}) {
   const document = makeDocument();
   const navigator = { onLine: online };
   const windowListeners = {};
@@ -210,7 +260,22 @@ async function bootApp({ server, storage, user, online = true, signIn = true, au
     },
   };
 
-  const session = { user: { id: user.id, email: user.email || "user@example.com" } };
+  const metaStorageKey = "spend.harness.user_metadata." + user.id;
+  let bootMeta = userMetadata || {};
+  try {
+    const rawMeta = storage.get(metaStorageKey);
+    if (rawMeta) bootMeta = Object.assign({}, bootMeta, JSON.parse(rawMeta));
+  } catch (_) {
+    /* ignore */
+  }
+
+  const session = {
+    user: {
+      id: user.id,
+      email: user.email || "user@example.com",
+      user_metadata: bootMeta,
+    },
+  };
 
   const ctx = {
     console: {
@@ -254,6 +319,16 @@ async function bootApp({ server, storage, user, online = true, signIn = true, au
       authCallback = cb;
     },
     signOut: async () => {},
+    clearLocalSession() {},
+    updateDisplayName: async (name) => {
+      session.user = Object.assign({}, session.user, {
+        user_metadata: Object.assign({}, session.user.user_metadata, { display_name: name }),
+      });
+      if (page.alive) {
+        storage.set(metaStorageKey, JSON.stringify(session.user.user_metadata));
+      }
+      return { user: session.user };
+    },
   };
   const data = makeSpendData(server);
   ctx.SpendData = {};
@@ -276,6 +351,7 @@ async function bootApp({ server, storage, user, online = true, signIn = true, au
   ctx.showToastHook = (m) => toasts.push(m);
 
   vm.createContext(ctx);
+  vm.runInContext(AUTH_VIEW_SRC, ctx, { filename: "auth-view.js" });
   vm.runInContext(APP_SRC, ctx, { filename: "app.js" });
 
   const app = {
@@ -302,6 +378,30 @@ async function bootApp({ server, storage, user, online = true, signIn = true, au
     },
     get signedInAs() {
       return vm.runInContext("appReady && currentUser ? currentUser.id : null", ctx);
+    },
+    activeScreen() {
+      const screens = [
+        "screen-auth",
+        "screen-setup",
+        "screen-display-name",
+        "screen-home",
+        "screen-list",
+        "screen-add",
+        "screen-analyse",
+        "screen-stub",
+      ];
+      for (const id of screens) {
+        if (app.run(`document.getElementById("${id}").classList.contains("active")`)) return id;
+      }
+      return null;
+    },
+    accountInitial() {
+      return vm.runInContext("document.getElementById('accountInitial').textContent", ctx);
+    },
+    async submitDisplayName(name) {
+      vm.runInContext(`document.getElementById("displayNameInput").value = ${JSON.stringify(name)}`, ctx);
+      await vm.runInContext("document.getElementById('displayNameForm').requestSubmit()", ctx);
+      await settle(15);
     },
     /** Fill the add form and save, the way the UI does. */
     async addExpense({ cat = "groceries", amount, note = "", day }) {
