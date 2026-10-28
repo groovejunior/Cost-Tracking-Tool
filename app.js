@@ -2274,7 +2274,7 @@ function renderMore() {
     el.innerHTML = `
       <div class="account-card">
         <div class="lbl">Display currency</div>
-        <p class="settings-hint">Choose how amounts appear across the app. Your saved numbers stay the same; only labels and formatting change.</p>
+        <p class="settings-hint">New expenses and your spending limit use this currency. Expenses you already added keep the currency they were entered in.</p>
         <div class="currency-seg" role="group" aria-label="Display currency">
           <button type="button" class="currency-opt ${displayCurrency === "AUD" ? "active" : ""}" data-currency="AUD">AUD</button>
           <button type="button" class="currency-opt ${displayCurrency === "EUR" ? "active" : ""}" data-currency="EUR">EUR</button>
