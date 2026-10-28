@@ -127,6 +127,7 @@ function toExpense(row) {
     note: row.note || "",
     date: row.date,
     fxRate: row.fxRate != null ? Number(row.fxRate) : null,
+    currency: row.currency === "EUR" ? "EUR" : "AUD",
   };
 }
 
@@ -306,11 +307,12 @@ async function bootApp({ server, storage, user, online = true, signIn = true, au
       return vm.runInContext("appReady && currentUser ? currentUser.id : null", ctx);
     },
     /** Fill the add form and save, the way the UI does. */
-    async addExpense({ cat = "groceries", amount, note = "", day }) {
+    async addExpense({ cat = "groceries", amount, note = "", day, currency }) {
       vm.runInContext("editingId = null", ctx);
-      ctx.__draft = { cat, amount, note, day };
+      ctx.__draft = { cat, amount, note, day, currency };
       vm.runInContext(
         "draft.cat = __draft.cat; draft.day = __draft.day || todayStr();" +
+          "draft.currency = __draft.currency || displayCurrency;" +
           "document.getElementById('amtInput').value = String(__draft.amount);" +
           "document.getElementById('noteInput').value = __draft.note;",
         ctx

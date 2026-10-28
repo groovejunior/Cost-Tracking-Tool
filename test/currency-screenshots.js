@@ -1,9 +1,8 @@
 "use strict";
 
 /**
- * Mobile screenshots for the currency setting PR (390×844).
+ * Mobile screenshots for native currency storage (390×844).
  *
- *   npm i --prefix /tmp/pw playwright-core
  *   NODE_PATH=/tmp/pw/node_modules node test/currency-screenshots.js
  */
 
@@ -108,6 +107,7 @@ async function installMocks(context, be) {
             note: r.note || "",
             expense_date: r.expense_date,
             fx_rate: r.fx_rate ?? 1.6,
+            currency: r.currency || "AUD",
           };
           be.rows.set(row.id, row);
           return row;
@@ -152,7 +152,15 @@ async function waitApp(page) {
   );
 }
 
+async function hideToast(page) {
+  await page.evaluate(() => {
+    const t = document.getElementById("toast");
+    if (t) t.hidden = true;
+  });
+}
+
 async function shot(page, name) {
+  await hideToast(page);
   fs.mkdirSync(OUT, { recursive: true });
   const file = path.join(OUT, name);
   await page.screenshot({ path: file, fullPage: false });
@@ -167,6 +175,7 @@ async function main() {
   const t0 = new Date().toISOString();
   const id1 = crypto.randomUUID();
   const id2 = crypto.randomUUID();
+  const id3 = crypto.randomUUID();
   be.rows.set(id1, {
     id: id1,
     category_id: "groceries",
@@ -174,6 +183,7 @@ async function main() {
     note: "Weekly shop",
     expense_date: t0,
     fx_rate: 1.6,
+    currency: "AUD",
   });
   be.rows.set(id2, {
     id: id2,
@@ -182,6 +192,16 @@ async function main() {
     note: "Train pass",
     expense_date: t0,
     fx_rate: 1.6,
+    currency: "AUD",
+  });
+  be.rows.set(id3, {
+    id: id3,
+    category_id: "food",
+    amount: 20,
+    note: "Lunch in Paris",
+    expense_date: t0,
+    fx_rate: 1.6,
+    currency: "EUR",
   });
 
   const browser = await chromium.launch({
@@ -206,37 +226,40 @@ async function main() {
   const page = await context.newPage();
   await page.goto(APP_URL);
   await waitApp(page);
+  await page.waitForTimeout(500);
 
   await page.click('button[data-nav="more"]');
   await page.waitForSelector(".currency-seg");
   await shot(page, "settings-currency-aud.png");
 
+  await page.click('button[data-nav="home"]');
+  await page.waitForSelector(".hero .total");
+  await shot(page, "home-totals-aud.png");
+
+  await page.click('button[data-nav="list"]');
+  await page.waitForSelector(".listcard");
+  await shot(page, "list-mixed-currency-aud.png");
+
+  await page.click('button[data-nav="more"]');
+  await page.waitForSelector(".currency-seg");
   await page.click('button[data-currency="EUR"]');
   await page.waitForSelector("#confirmDialog:not([hidden])");
   await shot(page, "settings-currency-switch-confirm.png");
-
   await page.click("#confirmOk");
   await page.waitForFunction(() => document.getElementById("confirmDialog").hidden);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(600);
+  await hideToast(page);
   await shot(page, "settings-currency-eur.png");
 
   await page.click('button[data-nav="home"]');
   await page.waitForSelector(".hero .total");
+  await hideToast(page);
   await shot(page, "home-totals-eur.png");
 
   await page.click('button[data-nav="add"]');
   await page.waitForSelector("#amtInput");
+  await hideToast(page);
   await shot(page, "add-expense-eur.png");
-
-  await page.evaluate(() => {
-    displayCurrency = "AUD";
-    writeLocalSettings(currentUser.id, { variableBudget, displayCurrency });
-    refreshCurrencyChrome();
-    showScreen("home");
-    renderHome();
-  });
-  await page.waitForTimeout(400);
-  await shot(page, "home-totals-aud.png");
 
   await browser.close();
   server.close();

@@ -1,8 +1,9 @@
 "use strict";
 
 /**
- * Display currency helpers. Expense amounts and budgets are always stored in AUD;
- * this module formats and converts for the user's AUD/EUR display preference.
+ * Multi-currency helpers. Each expense amount is stored in expense.currency.
+ * user_settings.currency is the user's display currency and the currency of variable_budget.
+ * EUR→AUD rate (aud per 1 EUR) comes from SpendRates / fx_rate on the expense.
  */
 const SpendCurrency = {
   SUPPORTED: ["AUD", "EUR"],
@@ -13,101 +14,89 @@ const SpendCurrency = {
     return this.SUPPORTED.includes(c) ? c : this.DEFAULT;
   },
 
+  expenseCurrency(expense) {
+    return this.normalize(expense && expense.currency);
+  },
+
   audFmt: new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }),
   eurFmt: new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }),
-  eurHintFmt: new Intl.NumberFormat("en-IE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  }),
-  audHintFmt: new Intl.NumberFormat("en-AU", {
-    style: "currency",
-    currency: "AUD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }),
 
   roundMoney(n) {
     return Math.round(n * 100) / 100;
   },
 
-  audToEur(aud, rate) {
-    if (!(rate > 0)) return aud;
-    return aud / rate;
+  format(amount, currency) {
+    const n = this.roundMoney(Number(amount));
+    return this.normalize(currency) === "EUR" ? this.eurFmt.format(n) : this.audFmt.format(n);
   },
 
-  eurToAud(eur, rate) {
-    if (!(rate > 0)) return eur;
-    return eur * rate;
+  /** Convert amount between currencies using EUR→AUD rate (AUD per 1 EUR). */
+  convert(amount, fromCurrency, toCurrency, eurToAud) {
+    const from = this.normalize(fromCurrency);
+    const to = this.normalize(toCurrency);
+    const n = Number(amount);
+    if (!(n >= 0) || from === to) return this.roundMoney(n);
+    const rate = eurToAud > 0 ? eurToAud : 1.65;
+    if (from === "EUR" && to === "AUD") return this.roundMoney(n * rate);
+    if (from === "AUD" && to === "EUR") return this.roundMoney(n / rate);
+    return this.roundMoney(n);
   },
 
-  /** Format a stored AUD amount for the user's display currency. */
-  formatStored(aud, displayCurrency, rate) {
-    const cur = this.normalize(displayCurrency);
-    if (cur === "EUR") {
-      return this.eurFmt.format(this.roundMoney(this.audToEur(aud, rate)));
+  amountInDisplay(expense, displayCurrency, eurToAud) {
+    return this.convert(expense.amount, this.expenseCurrency(expense), displayCurrency, eurToAud);
+  },
+
+  sumInDisplay(expenses, displayCurrency, rateForExpense) {
+    let sum = 0;
+    for (const e of expenses || []) {
+      const rate = typeof rateForExpense === "function" ? rateForExpense(e) : rateForExpense;
+      sum += this.amountInDisplay(e, displayCurrency, rate);
     }
-    return this.audFmt.format(this.roundMoney(aud));
+    return this.roundMoney(sum);
   },
 
-  /** Secondary hint under the main amount (opposite currency). */
-  formatHint(aud, displayCurrency, rate) {
-    const cur = this.normalize(displayCurrency);
-    if (cur === "EUR") {
-      return this.audHintFmt.format(this.roundMoney(aud));
-    }
-    const eur = this.audToEur(aud, rate);
-    return this.eurHintFmt.format(Math.ceil(eur * 10) / 10);
+  convertBudget(amount, fromCurrency, toCurrency, eurToAud) {
+    return this.convert(amount, fromCurrency, toCurrency, eurToAud);
   },
 
   currencyLabel(displayCurrency) {
     return this.normalize(displayCurrency);
   },
 
-  amountAriaLabel(displayCurrency) {
-    return this.normalize(displayCurrency) === "EUR"
-      ? "Amount in euros"
-      : "Amount in Australian dollars";
+  amountAriaLabel(currency) {
+    return this.normalize(currency) === "EUR" ? "Amount in euros" : "Amount in Australian dollars";
   },
 
-  budgetAriaLabel(displayCurrency) {
-    return this.normalize(displayCurrency) === "EUR"
+  budgetAriaLabel(currency) {
+    return this.normalize(currency) === "EUR"
       ? "Variable spending limit in euros"
       : "Variable spending limit in Australian dollars";
   },
 
-  /** User typed amount in display currency → AUD for storage. */
-  inputToStored(displayAmount, displayCurrency, rate) {
-    const n = Number(displayAmount);
-    if (!(n > 0)) return 0;
-    if (this.normalize(displayCurrency) === "EUR") {
-      return this.roundMoney(this.eurToAud(n, rate));
+  /** HTML for one amount line in display currency. */
+  moneyMainHtml(amount, displayCurrency) {
+    return `<div class="money-main tabular">${this.format(amount, displayCurrency)}</div>`;
+  },
+
+  /** Hero / category total (single currency, no cross-line). */
+  moneyHeroHtml(total, displayCurrency) {
+    return `<div class="moneyblock hero-money">${this.moneyMainHtml(total, displayCurrency)}</div>`;
+  },
+
+  /** Expense row: display-currency amount; if stored currency differs, show original below. */
+  moneyStackExpenseHtml(expense, displayCurrency, eurToAud) {
+    const origCur = this.expenseCurrency(expense);
+    const dispCur = this.normalize(displayCurrency);
+    if (origCur === dispCur) {
+      return `<div class="moneyblock">${this.moneyMainHtml(expense.amount, origCur)}</div>`;
     }
-    return this.roundMoney(n);
+    const displayAmt = this.amountInDisplay(expense, dispCur, eurToAud);
+    const origLabel = this.format(expense.amount, origCur);
+    return `<div class="moneyblock">${this.moneyMainHtml(displayAmt, dispCur)}<div class="money-eur tabular">${origLabel} originally</div></div>`;
   },
 
-  /** Stored AUD → value for amount/budget inputs in display currency. */
-  storedToInput(storedAud, displayCurrency, rate) {
-    const aud = Number(storedAud);
-    if (!(aud > 0)) return "";
-    if (this.normalize(displayCurrency) === "EUR") {
-      return this.roundMoney(this.audToEur(aud, rate)).toFixed(2);
-    }
-    return this.roundMoney(aud).toFixed(2);
-  },
-
-  moneyHeroHtml(aud, rate, displayCurrency) {
-    const main = this.formatStored(aud, displayCurrency, rate);
-    const hint = this.formatHint(aud, displayCurrency, rate);
-    const prefix = this.normalize(displayCurrency) === "AUD" ? "≈ " : "";
-    return `<div class="moneyblock hero-money"><div class="money-main tabular">${main}</div><div class="money-eur tabular">${prefix}${hint}</div></div>`;
-  },
-
-  moneyStackHtml(aud, rate, displayCurrency) {
-    const main = this.formatStored(aud, displayCurrency, rate);
-    const hint = this.formatHint(aud, displayCurrency, rate);
-    return `<div class="moneyblock"><div class="money-main tabular">${main}</div><div class="money-eur tabular">${hint}</div></div>`;
+  moneyStackTotalHtml(total, displayCurrency) {
+    return `<div class="moneyblock">${this.moneyMainHtml(total, displayCurrency)}</div>`;
   },
 };
 

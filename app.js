@@ -312,11 +312,12 @@ async function saveVariableBudget(amount) {
   }
 }
 
-async function saveDisplayCurrency(code) {
+async function saveDisplayCurrency(code, budget) {
   displayCurrency = SpendCurrency.normalize(code);
+  variableBudget = Math.round(budget * 100) / 100;
   if (currentUser) writeLocalSettings(currentUser.id, { variableBudget, displayCurrency });
   if (useCloud() && window.SpendSettings) {
-    await window.SpendSettings.updateCurrency(currentUser.id, displayCurrency);
+    await window.SpendSettings.updateCurrencyAndBudget(currentUser.id, displayCurrency, variableBudget);
   }
 }
 
@@ -457,7 +458,7 @@ function save() {
 function load() {
   try {
     const p = readLocalExpenses();
-    if (p.length) expenses = p;
+    if (p.length) expenses = migrateExpenses(p);
   } catch (e) {}
 }
 
@@ -535,7 +536,19 @@ function expensePayload(item) {
     note: item.note || "",
     date: item.date,
     fxRate: item.fxRate ?? null,
+    currency: SpendCurrency.expenseCurrency(item),
   };
+}
+
+function migrateExpenseRow(e) {
+  if (!e || typeof e !== "object") return e;
+  if (!e.currency) e.currency = SpendCurrency.DEFAULT;
+  else e.currency = SpendCurrency.normalize(e.currency);
+  return e;
+}
+
+function migrateExpenses(list) {
+  return (list || []).map(migrateExpenseRow);
 }
 
 function syncUidFromExpenses() {
@@ -570,7 +583,7 @@ function mergeCloudAndLocal(cloudRows, local, syncedBefore) {
     if (syncedBefore && syncedBefore.has(item.id) && !isPendingExpense(item)) continue;
     byId.set(item.id, item);
   }
-  return [...byId.values()];
+  return [...byId.values()].map(migrateExpenseRow);
 }
 
 function syncedExpenseIds() {
@@ -1014,37 +1027,40 @@ function setAppLoading(loading) {
 function viewMonthRate() {
   return window.SpendRates.rateFor(viewMonth);
 }
-/** EUR/AUD rate for one expense (monthly lock, then saved snapshot). */
+/** EUR→AUD rate for one expense (monthly lock, then saved snapshot). */
 function expenseRate(e) {
   const monthly = window.SpendRates.rateFor(e.date);
-  return monthly || e.fxRate;
+  return monthly || e.fxRate || window.SpendRates.DEFAULT_RATE;
 }
-function money(aud) {
-  return SpendCurrency.formatStored(aud, displayCurrency, viewMonthRate());
+function sumDisplayAmounts(items) {
+  return SpendCurrency.sumInDisplay(items, displayCurrency, (e) => expenseRate(e));
 }
-function moneyAt(aud, rate) {
-  return SpendCurrency.formatStored(aud, displayCurrency, rate);
+/** Format a number already expressed in the user's display currency. */
+function money(n) {
+  return SpendCurrency.format(n, displayCurrency);
 }
-/** Hero total — primary currency + secondary hint. */
-function moneyHero(aud, rate) {
-  return SpendCurrency.moneyHeroHtml(aud, rate, displayCurrency);
+function moneyHeroTotal(total) {
+  return SpendCurrency.moneyHeroHtml(total, displayCurrency);
 }
-/** Primary amount + secondary hint (category cards, expense rows). */
-function moneyStack(aud, rate) {
-  return SpendCurrency.moneyStackHtml(aud, rate, displayCurrency);
+function moneyStackTotal(total) {
+  return SpendCurrency.moneyStackTotalHtml(total, displayCurrency);
 }
 function moneyStackExpense(e) {
-  return moneyStack(e.amount, expenseRate(e));
+  return SpendCurrency.moneyStackExpenseHtml(e, displayCurrency, expenseRate(e));
 }
 function refreshCurrencyChrome() {
+  const inputCur =
+    currentScreen === "add" || document.getElementById("screen-add")?.classList.contains("active")
+      ? SpendCurrency.expenseCurrency({ currency: draft.currency })
+      : displayCurrency;
   const curEl = document.getElementById("amtCurrency");
   const amtInput = document.getElementById("amtInput");
   const budgetCur = document.getElementById("budgetCurrency");
   const budgetInput = document.getElementById("budgetInput");
-  const label = SpendCurrency.currencyLabel(displayCurrency);
+  const label = SpendCurrency.currencyLabel(inputCur);
   if (curEl) curEl.textContent = label;
-  if (amtInput) amtInput.setAttribute("aria-label", SpendCurrency.amountAriaLabel(displayCurrency));
-  if (budgetCur) budgetCur.textContent = label;
+  if (amtInput) amtInput.setAttribute("aria-label", SpendCurrency.amountAriaLabel(inputCur));
+  if (budgetCur) budgetCur.textContent = SpendCurrency.currencyLabel(displayCurrency);
   if (budgetInput) budgetInput.setAttribute("aria-label", SpendCurrency.budgetAriaLabel(displayCurrency));
 }
 function expenseInViewMonth(e) {
@@ -1156,20 +1172,16 @@ let enterAppRunning = false;
 let commitAddRunning = false;
 let viewMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let viewMonthFollowsToday = true;
-const draft = { amount: 0, cat: null, note: "", day: todayStr() };
+const draft = { amount: 0, cat: null, note: "", day: todayStr(), currency: "AUD" };
 
 /* ---------- HOME ---------- */
 function renderHome() {
   syncMonthSwitcher("home");
 
   const month = expenses.filter(expenseInViewMonth);
-  const total = month.reduce((s, e) => s + e.amount, 0);
-  const fixed = month
-    .filter((e) => isFixedCat(catById(e.cat)))
-    .reduce((s, e) => s + e.amount, 0);
-  const oneOff = month
-    .filter((e) => isOneOffCat(catById(e.cat)))
-    .reduce((s, e) => s + e.amount, 0);
+  const total = sumDisplayAmounts(month);
+  const fixed = sumDisplayAmounts(month.filter((e) => isFixedCat(catById(e.cat))));
+  const oneOff = sumDisplayAmounts(month.filter((e) => isOneOffCat(catById(e.cat))));
   const variable = total - fixed - oneOff;
   const left = variableBudget - variable;
   const pct = Math.min(100, Math.round((variable / variableBudget) * 100));
@@ -1179,7 +1191,7 @@ function renderHome() {
     .filter((c) => !isOneOffCat(c))
     .map((c) => ({
       c,
-      sum: month.filter((e) => e.cat === c.id).reduce((s, e) => s + e.amount, 0),
+      sum: sumDisplayAmounts(month.filter((e) => e.cat === c.id)),
     }))
     .filter((x) => x.sum > 0)
     .sort((a, b) => b.sum - a.sum);
@@ -1188,7 +1200,6 @@ function renderHome() {
     .map((c) => c.name)
     .join(", ");
   const recent = [...month].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4);
-  const fx = window.SpendRates.rateFor(viewMonth);
 
   const catCards = byCat
     .map(
@@ -1196,7 +1207,7 @@ function renderHome() {
     <div class="catcard">
       <div class="dot" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></div>
       <div class="cn">${esc(c.name)}</div>
-      <div class="cv">${moneyStack(sum, fx)}</div>
+      <div class="cv">${moneyStackTotal(sum)}</div>
     </div>`
     )
     .join("");
@@ -1221,7 +1232,7 @@ function renderHome() {
   document.getElementById("homeScroll").innerHTML = `
     <div class="hero">
       <div class="lbl">${isCurrentViewMonth() ? "Spent this month" : "Spent in " + viewMonth.toLocaleDateString("en-GB", { month: "long" })}</div>
-      <div class="total">${moneyHero(total, fx)}</div>
+      <div class="total">${moneyHeroTotal(total)}</div>
       <div class="bar ${over ? "over" : ""}"><i style="width:${pct}%"></i></div>
       <div class="budgetrows">
         <div class="budgetrow">
@@ -1374,6 +1385,7 @@ function openAdd() {
   draft.cat = null;
   draft.note = "";
   draft.day = todayStr();
+  draft.currency = displayCurrency;
   const ai = document.getElementById("amtInput");
   ai.value = "";
   document.getElementById("noteInput").value = "";
@@ -1390,8 +1402,8 @@ function openEdit(id) {
   draft.cat = e.cat;
   draft.note = e.note || "";
   draft.day = isoDay(new Date(e.date));
-  const rate = expenseRate(e);
-  document.getElementById("amtInput").value = SpendCurrency.storedToInput(e.amount, displayCurrency, rate);
+  draft.currency = SpendCurrency.expenseCurrency(e);
+  document.getElementById("amtInput").value = e.amount.toFixed(2);
   document.getElementById("noteInput").value = e.note || "";
   document.getElementById("addTitle").textContent = "Edit expense";
   document.getElementById("saveBtn").textContent = "Save changes";
@@ -1424,13 +1436,13 @@ async function commitAdd() {
 
   const date = stampFor(draft.day);
   const rate = window.SpendRates.snapshotFor(date);
-  const storedAmount = SpendCurrency.inputToStored(draft.amount, displayCurrency, rate);
   const payload = {
     cat: draft.cat,
-    amount: storedAmount,
+    amount: Math.round(draft.amount * 100) / 100,
     note: document.getElementById("noteInput").value.trim(),
     date,
     fxRate: rate,
+    currency: SpendCurrency.expenseCurrency({ currency: draft.currency || displayCurrency }),
   };
 
   try {
@@ -1469,7 +1481,7 @@ async function commitAdd() {
 function deleteConfirmCopy(e) {
   const c = catById(e.cat);
   const label = e.note || c.name;
-  const amount = moneyAt(e.amount, expenseRate(e));
+  const amount = SpendCurrency.format(e.amount, SpendCurrency.expenseCurrency(e));
   return {
     title: "Delete this expense?",
     body: `${label} · ${amount}. This can’t be undone.`,
@@ -1564,7 +1576,7 @@ function expensesInMonthDate(monthDate) {
 }
 
 function sumAmounts(items) {
-  return items.reduce((s, e) => s + e.amount, 0);
+  return sumDisplayAmounts(items);
 }
 
 function catBreakdownFor(items) {
@@ -1662,8 +1674,9 @@ function buildAnalyseHighlights(cur, prev) {
 }
 
 function moneyCompact(n) {
-  if (n >= 1000) return "$" + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
-  return "$" + Math.round(n);
+  const sym = displayCurrency === "EUR" ? "€" : "$";
+  if (n >= 1000) return sym + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
+  return sym + Math.round(n);
 }
 
 /** Multi-segment donut for category share of total spend. */
@@ -2257,8 +2270,7 @@ function renderMore() {
   const el = document.getElementById("stubContent");
   if (window.SpendAuth && window.SpendAuth.isEnabled() && currentUser) {
     el.className = "account-panel";
-    const budgetRate = window.SpendRates.rateFor(new Date());
-    const budgetDisplay = SpendCurrency.storedToInput(variableBudget, displayCurrency, budgetRate);
+    const budgetDisplay = variableBudget.toFixed(2);
     el.innerHTML = `
       <div class="account-card">
         <div class="lbl">Display currency</div>
@@ -2323,19 +2335,17 @@ function renderMore() {
 async function handleSaveBudget() {
   const input = document.getElementById("budgetInput");
   if (!input) return;
-  const displayAmount = parseAmount(input.value);
-  if (!(displayAmount > 0)) {
+  const amount = parseAmount(input.value);
+  if (!(amount > 0)) {
     showToast("Enter a valid spending limit.");
     return;
   }
-  const rate = window.SpendRates.rateFor(new Date());
-  const amount = SpendCurrency.inputToStored(displayAmount, displayCurrency, rate);
 
   const btn = document.getElementById("saveBudgetBtn");
   if (btn) btn.disabled = true;
   try {
     await saveVariableBudget(amount);
-    input.value = SpendCurrency.storedToInput(variableBudget, displayCurrency, rate);
+    input.value = variableBudget.toFixed(2);
     showToast("Spending limit saved.");
     if (currentScreen === "home") renderHome();
   } catch (err) {
@@ -2348,12 +2358,16 @@ async function handleSaveBudget() {
 async function handleCurrencySelect(next) {
   const code = SpendCurrency.normalize(next);
   if (code === displayCurrency) return;
+  const rate = window.SpendRates.rateFor(new Date());
+  const converted = SpendCurrency.convertBudget(variableBudget, displayCurrency, code, rate);
+  const fromLabel = SpendCurrency.format(variableBudget, displayCurrency);
+  const toLabel = SpendCurrency.format(converted, code);
   const toEur = code === "EUR";
   const ok = await askConfirm({
     title: toEur ? "Switch to euros?" : "Switch to Australian dollars?",
     body: toEur
-      ? "Your saved amounts stay exactly as they are. Totals, budget, and new entries will show in euros using each month’s exchange rate. Switch back anytime."
-      : "Your saved amounts stay exactly as they are. Totals, budget, and new entries will show in Australian dollars again.",
+      ? `Each expense keeps the currency it was entered in. Your ${fromLabel} spending limit will become about ${toLabel} using this month's rate. New expenses will be in euros.`
+      : `Each expense keeps the currency it was entered in. Your ${fromLabel} spending limit will become about ${toLabel} using this month's rate. New expenses will be in Australian dollars.`,
     confirmLabel: toEur ? "Use euros" : "Use AUD",
     danger: false,
   });
@@ -2362,7 +2376,7 @@ async function handleCurrencySelect(next) {
     return;
   }
   try {
-    await saveDisplayCurrency(code);
+    await saveDisplayCurrency(code, converted);
     refreshCurrencyChrome();
     renderMore();
     renderHome();

@@ -14,7 +14,8 @@ create table if not exists public.expenses (
   amount numeric(10, 2) not null check (amount > 0),
   note text not null default '',
   expense_date timestamptz not null,    -- "date" in the app (renamed to avoid SQL keyword)
-  fx_rate numeric(10, 4),               -- EUR→AUD snapshot for the expense month (€ hints)
+  fx_rate numeric(10, 4),               -- EUR→AUD snapshot for the expense month (conversion)
+  currency text not null default 'AUD' check (currency in ('AUD', 'EUR')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

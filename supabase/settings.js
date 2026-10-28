@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Per-user settings (variable spending limit, display currency, etc.)
+ * Per-user settings (variable spending limit, display/budget currency, etc.)
  * Maps to public.user_settings in Supabase.
  */
 const SpendSettings = {
@@ -45,6 +45,21 @@ const SpendSettings = {
       .single();
     if (error) throw error;
     return data.currency;
+  },
+
+  async updateCurrencyAndBudget(userId, currency, budget) {
+    const code = window.SpendCurrency?.normalize(currency) || "AUD";
+    const { data, error } = await this._db()
+      .from("user_settings")
+      .update({ currency: code, variable_budget: budget })
+      .eq("user_id", userId)
+      .select("variable_budget, currency")
+      .single();
+    if (error) throw error;
+    return {
+      variable_budget: Number(data.variable_budget),
+      currency: data.currency,
+    };
   },
 
   /** Create a settings row if signup trigger did not run (older accounts). */

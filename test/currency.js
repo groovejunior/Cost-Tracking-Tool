@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Unit tests for display-currency formatting and AUD storage conversions.
+ * Unit tests for native per-expense currency storage and display totals.
  *
  *   node test/currency.js
  */
@@ -12,31 +12,38 @@ const SpendCurrency = require("../currency.js");
 const RATE = 1.6;
 
 assert.strictEqual(SpendCurrency.normalize("eur"), "EUR");
-assert.strictEqual(SpendCurrency.normalize("usd"), "AUD");
-assert.strictEqual(SpendCurrency.normalize(""), "AUD");
+assert.strictEqual(SpendCurrency.expenseCurrency({}), "AUD");
+assert.strictEqual(SpendCurrency.expenseCurrency({ currency: "EUR" }), "EUR");
 
-assert.strictEqual(SpendCurrency.inputToStored(100, "AUD", RATE), 100);
-assert.strictEqual(SpendCurrency.inputToStored(50, "EUR", RATE), 80);
-assert.strictEqual(SpendCurrency.storedToInput(80, "EUR", RATE), "50.00");
+assert.strictEqual(SpendCurrency.convert(10, "EUR", "EUR", RATE), 10);
+assert.strictEqual(SpendCurrency.convert(10, "EUR", "AUD", RATE), 16);
+assert.strictEqual(SpendCurrency.convert(16, "AUD", "EUR", RATE), 10);
 
-const audMain = SpendCurrency.formatStored(160, "AUD", RATE);
-assert(audMain.includes("160"), "AUD format shows stored amount");
-const eurMain = SpendCurrency.formatStored(160, "EUR", RATE);
-assert(eurMain.includes("100") || eurMain.includes("100,00"), "EUR format converts 160 AUD at 1.6");
+const eurExpense = { amount: 10, currency: "EUR", date: "2026-10-01T12:00:00.000Z", fxRate: RATE };
+const audExpense = { amount: 32, currency: "AUD", date: "2026-10-01T12:00:00.000Z", fxRate: RATE };
 
-const hintAud = SpendCurrency.formatHint(160, "AUD", RATE);
-assert(hintAud.includes("€") || hintAud.toLowerCase().includes("eur"), "AUD mode EUR hint");
-const hintEur = SpendCurrency.formatHint(160, "EUR", RATE);
-assert(hintEur.includes("$") || hintEur.includes("A"), "EUR mode AUD hint");
+assert.strictEqual(SpendCurrency.amountInDisplay(eurExpense, "EUR", RATE), 10);
+assert.strictEqual(SpendCurrency.amountInDisplay(eurExpense, "AUD", RATE), 16);
+assert.strictEqual(SpendCurrency.amountInDisplay(audExpense, "AUD", RATE), 32);
+assert.strictEqual(SpendCurrency.amountInDisplay(audExpense, "EUR", RATE), 20);
 
-const roundTrip = SpendCurrency.inputToStored(
-  parseFloat(SpendCurrency.storedToInput(160, "EUR", RATE)),
-  "EUR",
-  RATE
-);
-assert.strictEqual(roundTrip, 160);
+const mixed = [eurExpense, audExpense];
+assert.strictEqual(SpendCurrency.sumInDisplay(mixed, "EUR", RATE), 30);
+assert.strictEqual(SpendCurrency.sumInDisplay(mixed, "AUD", RATE), 48);
 
-const hero = SpendCurrency.moneyHeroHtml(160, RATE, "AUD");
-assert(hero.includes("moneyblock") && hero.includes("≈"), "hero HTML for AUD");
+const oldRate = 1.5;
+const newRate = 2;
+assert.strictEqual(SpendCurrency.amountInDisplay(eurExpense, "AUD", oldRate), 15);
+assert.strictEqual(SpendCurrency.amountInDisplay(eurExpense, "AUD", newRate), 20);
+assert.strictEqual(eurExpense.amount, 10, "stored EUR amount unchanged when rate changes");
+
+const stack = SpendCurrency.moneyStackExpenseHtml(eurExpense, "AUD", RATE);
+assert(stack.includes("originally"), "cross-currency row shows original");
+assert(stack.includes("€") || stack.includes("EUR") || stack.includes("10"), "shows original euro amount");
+
+const same = SpendCurrency.moneyStackExpenseHtml(eurExpense, "EUR", RATE);
+assert(!same.includes("originally"), "same currency row has no originally line");
+
+assert.strictEqual(SpendCurrency.convertBudget(1000, "AUD", "EUR", RATE), 625);
 
 console.log("currency.js: all tests passed");
