@@ -185,15 +185,4 @@ create policy "Authenticated read fx rates"
   to authenticated
   using (true);
 
-drop policy if exists "Authenticated insert fx rates" on public.fx_rates;
-create policy "Authenticated insert fx rates"
-  on public.fx_rates for insert
-  to authenticated
-  with check (true);
-
-drop policy if exists "Authenticated update fx rates" on public.fx_rates;
-create policy "Authenticated update fx rates"
-  on public.fx_rates for update
-  to authenticated
-  using (true)
-  with check (true);
+-- Inserts/updates: service role or SQL editor only (see migrations/20261006120000_bugfix_hardening.sql)

@@ -268,6 +268,7 @@ async function bootApp({ server, storage, user, online = true, signIn = true, au
   ctx.SpendRates = {
     snapshotFor: () => 1.6,
     rateFor: () => 1.6,
+    rateForExpense: (e) => (e && e.fxRate > 0 ? Number(e.fxRate) : 1.6),
     audToEur: (a, r) => a / r,
     monthKey: (d) => new Date(d).toISOString().slice(0, 7),
     currentMonthKey: () => new Date().toISOString().slice(0, 7),

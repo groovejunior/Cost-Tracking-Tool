@@ -1029,8 +1029,7 @@ function viewMonthRate() {
 }
 /** EUR→AUD rate for one expense (monthly lock, then saved snapshot). */
 function expenseRate(e) {
-  const monthly = window.SpendRates.rateFor(e.date);
-  return monthly || e.fxRate || window.SpendRates.DEFAULT_RATE;
+  return window.SpendRates.rateForExpense(e);
 }
 function sumDisplayAmounts(items) {
   return SpendCurrency.sumInDisplay(items, displayCurrency, (e) => expenseRate(e));

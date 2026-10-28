@@ -1,17 +1,16 @@
 "use strict";
 
 /**
- * Monthly EUR→AUD rates for the small € hints under AUD amounts.
+ * Monthly EUR→AUD rates for mixed-currency totals and conversion hints.
  *
- * Storage layers (fastest → source of truth):
+ * Storage layers:
  *  1. In-memory cache while the app is open
- *  2. localStorage — offline / instant startup
- *  3. Supabase fx_rates table — syncs across your devices
- *  4. Frankfurter API — fills in any month nobody has fetched yet
+ *  2. localStorage (`spend_fx_rates`) — offline / per device (PR #1)
+ *  3. Supabase fx_rates — read-only sync from shared table (if populated)
+ *  4. Frankfurter API — fetches missing months into local cache only
  *
- * Each month locks to the rate on the 1st (or the last ECB day on/before it)
- * and is never refreshed. July 2026 stays at the original 1.65. Each expense
- * also stores fxRate at save time as an offline fallback.
+ * Clients never write fx_rates (RLS read-only). Each expense also stores
+ * fxRate at save time as a fallback when that month is not locked locally.
  */
 const SpendRates = {
   STORAGE_KEY: "spend_fx_rates",
@@ -106,10 +105,22 @@ const SpendRates = {
     return `${y}-${m}`;
   },
 
-  /** AUD per 1 EUR for the month of this date. */
+  /** AUD per 1 EUR for the month of this date (locked cache or DEFAULT_RATE). */
   rateFor(isoOrDate) {
     const key = this.monthKey(isoOrDate);
     if (this._hasLockedRate(key)) return this.rates[key];
+    return this.DEFAULT_RATE;
+  },
+
+  /**
+   * Best rate for one expense: locked month cache, else saved snapshot, else default.
+   */
+  rateForExpense(expense) {
+    if (!expense) return this.DEFAULT_RATE;
+    const key = this.monthKey(expense.date);
+    if (this._hasLockedRate(key)) return this.rates[key];
+    const snap = expense.fxRate != null ? Number(expense.fxRate) : 0;
+    if (snap > 0) return snap;
     return this.DEFAULT_RATE;
   },
 
@@ -132,13 +143,6 @@ const SpendRates = {
     this.rates[monthKey] = rate;
     this.fetchedAt[monthKey] = new Date().toISOString();
     this.save();
-    if (this._cloudEnabled()) {
-      try {
-        await window.SpendFxRates.upsert(monthKey, rate);
-      } catch (e) {
-        console.warn("[Spend] Could not save FX rate to cloud:", e.message);
-      }
-    }
   },
 
   async fetchMonth(monthKey) {
@@ -154,26 +158,18 @@ const SpendRates = {
 
   /**
    * Make sure we have rates for these months.
-   * 1. Sync from Supabase (another device may already have them)
-   * 2. Seed July 2026 at 1.65 if the cloud does not already have it
-   * 3. Fetch any still-unlocked months from Frankfurter → save local + cloud
+   * 1. Merge read-only fx_rates from Supabase into localStorage (if signed in)
+   * 2. Seed known months locally when missing
+   * 3. Fetch any still-unlocked months from Frankfurter → local cache only
    */
   async ensureMonths(monthKeys) {
-    const cloudKeys = await this.syncFromCloud();
-    const cloudSet = new Set(cloudKeys);
+    await this.syncFromCloud();
     let updated = false;
 
     for (const [key, rate] of Object.entries(this.SEED_RATES)) {
-      if (cloudSet.has(key)) continue;
       if (!this._hasLockedRate(key)) {
         await this.persistMonth(key, rate);
         updated = true;
-      } else if (this._cloudEnabled()) {
-        try {
-          await window.SpendFxRates.upsert(key, this.rates[key]);
-        } catch (e) {
-          console.warn("[Spend] Could not save FX rate to cloud:", e.message);
-        }
       }
     }
 
@@ -208,9 +204,15 @@ const SpendRates = {
 
   /** Rate to store on a new/updated expense (snapshot for that month). */
   snapshotFor(isoDate) {
-    return this.rateFor(isoDate);
+    const key = this.monthKey(isoDate);
+    if (this._hasLockedRate(key)) return this.rates[key];
+    return this.DEFAULT_RATE;
   },
 };
 
 SpendRates.load();
 window.SpendRates = SpendRates;
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = SpendRates;
+}
