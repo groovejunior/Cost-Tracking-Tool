@@ -431,17 +431,24 @@ const scenarios = {
     await context.close();
   },
 
-  async "service worker cache is spend-v58 and includes auth-view.js"(browser) {
+  async "service worker cache is spend-v62 and includes auth-view.js"(browser) {
     const be = makeBackend();
     const { context, page } = await installAndSignIn(browser, be);
     const info = await page.evaluate(async () => {
       const keys = await caches.keys();
       const name = keys.find((k) => k.startsWith("spend-"));
       const entries = name ? (await (await caches.open(name)).keys()).map((r) => new URL(r.url).pathname) : [];
-      return { keys, name, hasAuthView: entries.some((p) => p.endsWith("/auth-view.js")), n: entries.length };
+      return {
+        keys,
+        name,
+        hasAuthView: entries.some((p) => p.endsWith("/auth-view.js")),
+        hasInstallTutorial: entries.some((p) => p.endsWith("/install-tutorial.js")),
+        n: entries.length,
+      };
     });
-    check("cache name is spend-v58", info.name === "spend-v58", info);
+    check("cache name is spend-v62", info.name === "spend-v62", info);
     check("auth-view.js is precached", info.hasAuthView, info);
+    check("install-tutorial.js is precached", info.hasInstallTutorial, info);
     await context.close();
   },
 

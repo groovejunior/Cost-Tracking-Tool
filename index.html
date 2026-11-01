@@ -95,7 +95,7 @@
                   <input class="noteinput" type="text" id="authName" name="name" autocomplete="given-name"
                          maxlength="40" placeholder="Your first name" aria-describedby="authNameHelp authNameError">
                 </div>
-                <p class="auth-field-help" id="authNameHelp">Shown to friends in shared groups. You can change it later.</p>
+                <p class="auth-field-help" id="authNameHelp">Shown on your profile. You can change it later.</p>
                 <p class="auth-field-error" id="authNameError" hidden aria-live="polite"></p>
               </div>
               <div class="field" id="authEmailField">
@@ -144,6 +144,9 @@
               <p class="auth-slow-note" id="authSlowNote" hidden>Waking the server can take up to 10 seconds the first time today.</p>
               <button type="submit" class="savebtn" id="authSubmit">Sign in</button>
             </form>
+            <p class="auth-install-link-wrap" id="authInstallLinkWrap" hidden>
+              <button type="button" class="auth-inline-link" id="authInstallHelpLink">How to install</button>
+            </p>
             <p class="auth-foot" id="authFoot" hidden></p>
             <div class="auth-forgot-success" id="authForgotSuccess" hidden role="status" aria-live="polite">
               ✓ If an account exists for that email, a reset link is on its way. It expires in 1 hour.
@@ -185,7 +188,7 @@
         <div class="auth-dock-inner">
           <div class="auth-heading">
             <h2 class="auth-title">What should we call you?</h2>
-            <p class="auth-lead">We use this for your avatar and when friends join shared groups later.</p>
+            <p class="auth-lead">We use this for your avatar and your account.</p>
           </div>
           <form id="displayNameForm" class="auth-form" novalidate>
             <div class="field" id="displayNameField">
@@ -298,6 +301,65 @@
 
 <div id="toast" class="toast" hidden></div>
 
+<div class="install-tutorial" id="installTutorial" hidden role="dialog" aria-modal="true"
+     aria-labelledby="installTutorialTitle" aria-describedby="installTutorialDesc">
+  <button type="button" class="install-tutorial-backdrop" id="installTutorialBackdrop" tabindex="-1" aria-hidden="true"></button>
+  <div class="install-tutorial-sheet">
+    <h2 class="auth-title" id="installTutorialTitle">Add Spend to your home screen</h2>
+    <p class="auth-lead" id="installTutorialDesc">Install once for a full-screen app with offline access.</p>
+
+    <div class="install-panel" id="installPanelIosOther" hidden>
+      <p class="install-callout">On iPhone and iPad, home screen install only works in <strong>Safari</strong>.</p>
+      <p class="auth-lead">Copy this link, paste it into Safari, then follow the steps below.</p>
+      <button type="button" class="auth-ghost-btn install-copy-btn" id="installCopyLinkBtn">Copy link to open in Safari</button>
+      <p class="install-copy-note" id="installCopyNote" hidden role="status" aria-live="polite">Link copied — paste in Safari’s address bar.</p>
+    </div>
+
+    <ol class="auth-steps install-steps" id="installStepsIosSafari" hidden>
+      <li><span class="install-step-ico icon" data-ico="share" aria-hidden="true"></span> Tap <strong>Share</strong> in Safari&rsquo;s toolbar</li>
+      <li class="install-step--stacked">
+        <div class="install-step-head">
+          <span class="install-step-ico icon" data-ico="viewMore" aria-hidden="true"></span>
+          <span>Tap <strong>View More</strong> in the lower-right of the share sheet</span>
+        </div>
+        <figure class="install-view-more-fig" aria-hidden="true">
+          <svg viewBox="0 0 132 76" xmlns="http://www.w3.org/2000/svg" role="presentation">
+            <rect x="1" y="1" width="130" height="74" rx="12" fill="#252525" stroke="#3A3A3A" stroke-width="1.5"/>
+            <rect x="14" y="14" width="16" height="16" rx="5" fill="#3A3A3A"/>
+            <rect x="36" y="14" width="16" height="16" rx="5" fill="#3A3A3A"/>
+            <rect x="58" y="14" width="16" height="16" rx="5" fill="#3A3A3A"/>
+            <rect x="80" y="14" width="16" height="16" rx="5" fill="#3A3A3A"/>
+            <rect x="14" y="36" width="16" height="16" rx="5" fill="#3A3A3A"/>
+            <rect x="36" y="36" width="16" height="16" rx="5" fill="#3A3A3A"/>
+            <rect x="72" y="48" width="50" height="20" rx="10" fill="#3FB5A8"/>
+            <text x="97" y="62" text-anchor="middle" fill="#0A0A0A" font-family="system-ui,sans-serif" font-size="9" font-weight="650">View More</text>
+          </svg>
+        </figure>
+      </li>
+      <li><span class="install-step-ico icon" data-ico="homePlus" aria-hidden="true"></span> Tap <strong>Add to Home Screen</strong></li>
+      <li><span class="install-step-ico icon" data-ico="plus" aria-hidden="true"></span> Tap <strong>Add</strong> in the top corner</li>
+      <li><span class="install-step-ico icon" data-ico="phone" aria-hidden="true"></span> Open <strong>Spend</strong> from your home screen</li>
+    </ol>
+
+    <ol class="auth-steps install-steps" id="installStepsAndroid" hidden>
+      <li><span class="install-step-ico icon" data-ico="dots" aria-hidden="true"></span> Tap the menu <strong>(⋮)</strong> in Chrome</li>
+      <li><span class="install-step-ico icon" data-ico="plus" aria-hidden="true"></span> Tap <strong>Add to Home screen</strong> or <strong>Install app</strong></li>
+      <li><span class="install-step-ico icon" data-ico="phone" aria-hidden="true"></span> Open <strong>Spend</strong> from your home screen</li>
+    </ol>
+
+    <p class="auth-lead install-desktop-note" id="installPanelDesktop" hidden>
+      Spend works in your browser. On Chrome or Edge you can also install it from the <span class="install-inline-ico icon" data-ico="download" aria-hidden="true"></span> icon in the address bar for a standalone window.
+    </p>
+
+    <button type="button" class="savebtn install-prompt-btn" id="installPromptBtn" hidden>Install Spend</button>
+
+    <div class="install-tutorial-actions">
+      <button type="button" class="savebtn" id="installTutorialDone">Done, I&rsquo;ve added it</button>
+      <button type="button" class="auth-ghost-btn" id="installTutorialBrowser">Continue in browser</button>
+    </div>
+  </div>
+</div>
+
 <div class="confirm" id="confirmDialog" hidden>
   <button type="button" class="confirm-backdrop" id="confirmCancelBg" aria-label="Dismiss"></button>
   <div class="confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmBody">
@@ -315,6 +377,7 @@
 <script src="./supabase/config.js"></script>
 <script src="./supabase/client.js"></script>
 <script src="./auth-view.js"></script>
+<script src="./install-tutorial.js"></script>
 <script src="./supabase/auth.js"></script>
 <script src="./supabase/data.js"></script>
 <script src="./supabase/settings.js"></script>
