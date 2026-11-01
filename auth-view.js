@@ -160,6 +160,36 @@ function accountInitialFromLabel(label) {
   return ch || "?";
 }
 
+/** Parse `#access_token=…&type=recovery` style fragments (without the leading `#`). */
+function parseAuthHashFragment(hash) {
+  const raw = (hash || "").replace(/^#/, "").trim();
+  if (!raw) return {};
+  try {
+    const params = new URLSearchParams(raw);
+    const out = {};
+    for (const [k, v] of params.entries()) out[k] = v;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** True only for a genuine Supabase password-reset redirect (tokens present). */
+function isPasswordRecoveryHash(hash) {
+  const p = parseAuthHashFragment(hash);
+  if (p.type !== "recovery") return false;
+  return !!(p.access_token || p.refresh_token || p.code);
+}
+
+/**
+ * Recovery UI is shown only when we know which account is resetting.
+ * A bare `type=recovery` flag or PASSWORD_RECOVERY without a session must not open recovery.
+ */
+function canShowPasswordRecoveryScreen({ recoveryActive, recoveryEmail }) {
+  if (!recoveryActive) return false;
+  return !!(recoveryEmail && String(recoveryEmail).trim());
+}
+
 const SpendAuthView = {
   MIN_SIGNUP_PASSWORD,
   trimName,
@@ -176,6 +206,9 @@ const SpendAuthView = {
   userHasDisplayName,
   accountLabelFromUser,
   accountInitialFromLabel,
+  parseAuthHashFragment,
+  isPasswordRecoveryHash,
+  canShowPasswordRecoveryScreen,
 };
 
 if (typeof module !== "undefined" && module.exports) {

@@ -51,7 +51,7 @@ async function shot(page, name) {
   fs.mkdirSync(OUT, { recursive: true });
   await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
   const browser = await chromium.launch({
-    executablePath: process.env.CHROME || "/usr/local/bin/google-chrome",
+    executablePath: process.env.CHROME || chromium.executablePath(),
     args: ["--no-sandbox"],
   });
 

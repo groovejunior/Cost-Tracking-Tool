@@ -1172,15 +1172,14 @@ function stampFor(dayStr) {
 let currentScreen = "home";
 let currentUser = null;
 let authMode = "signin";
-/** Opened from a password-reset email: ask for a new password before entering the app.
- *  Read at load because supabase-js clears the hash once it has the session. */
-let passwordRecovery = /(^#|&)type=recovery(&|$)/.test(location.hash || "");
+/** Opened from a password-reset email: ask for a new password before entering the app. */
+let passwordRecovery = false;
+let authRecoveryEmail = "";
 let authLoading = false;
 let authSlowTimer = null;
 let authResendCooldownTimer = null;
 let authResendCooldownSec = 0;
 let authPendingCheckEmail = null;
-let authRecoveryEmail = "";
 const authTouched = { name: false, email: false, password: false, confirm: false };
 /** Ignore blur validation while setAuthMode moves focus (avoids errors on a fresh tab). */
 let authSuppressBlurValidation = false;
@@ -2612,9 +2611,12 @@ function showAuthScreen() {
   app.classList.remove("modal");
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
   document.getElementById("screen-auth").classList.add("active");
-  if (passwordRecovery) setAuthMode("recovery");
-  else if (authMode === "checkEmail" || authMode === "forgot") setAuthMode(authMode);
-  else setAuthMode("signin");
+  if (shouldShowRecoveryAuthMode()) setAuthMode("recovery");
+  else {
+    if (passwordRecovery && !authRecoveryEmail) passwordRecovery = false;
+    if (authMode === "checkEmail" || authMode === "forgot") setAuthMode(authMode);
+    else setAuthMode("signin");
+  }
   clearAuthBanner();
   paintIcons(document.getElementById("screen-auth"));
   syncAuthInstallLink();
@@ -2769,6 +2771,22 @@ function authView() {
   return window.SpendAuthView;
 }
 
+function notePasswordRecoveryFromHash() {
+  const av = authView();
+  if (av && av.isPasswordRecoveryHash(location.hash || "")) {
+    passwordRecovery = true;
+  }
+}
+
+function shouldShowRecoveryAuthMode() {
+  const av = authView();
+  if (!av) return false;
+  return av.canShowPasswordRecoveryScreen({
+    recoveryActive: passwordRecovery,
+    recoveryEmail: authRecoveryEmail,
+  });
+}
+
 function authRootEl() {
   return document.querySelector("#screen-auth .auth--hybrid");
 }
@@ -2848,10 +2866,7 @@ function updatePasswordMeter() {
   });
   help.textContent = label;
   const weak = authView().passwordStrength(pwd.value).weak;
-  help.classList.toggle(
-    "auth-field-error",
-    weak && (authTouched.password || authMode === "recovery")
-  );
+  help.classList.toggle("auth-field-error", weak && authTouched.password);
 }
 
 function authSubmitLabel() {
@@ -3330,6 +3345,7 @@ function wireAuthForm() {
 
 async function bootstrap() {
   setAppLoading(true);
+  notePasswordRecoveryFromHash();
   wireAuthForm();
   wireInstallTutorial();
   wireDisplayNameForm();
@@ -3359,7 +3375,13 @@ async function bootstrap() {
     else showAuthScreen();
   };
   const showRecoveryScreen = (session) => {
-    authRecoveryEmail = (session && session.user && session.user.email) || "";
+    if (!session || !session.user) {
+      passwordRecovery = false;
+      authRecoveryEmail = "";
+      return;
+    }
+    authRecoveryEmail = session.user.email || "";
+    passwordRecovery = true;
     showAuthScreen();
     setAuthMode("recovery");
   };
@@ -3386,6 +3408,7 @@ async function bootstrap() {
   window.SpendAuth.onAuthStateChange((event, session) => {
     if (event === "TOKEN_REFRESHED") return;
     if (event === "PASSWORD_RECOVERY") {
+      if (!session || !session.user) return;
       passwordRecovery = true;
       booted = true;
       clearTimeout(fallback);
