@@ -342,6 +342,7 @@ input{font-family:inherit;}
 .auth-forgot-success[hidden],
 .auth-slow-note[hidden],
 .auth-install-link-wrap[hidden]{display:none !important;}
+.auth-form .field[hidden]{display:none !important;}
 
 /* install tutorial (auth overlay) */
 .install-tutorial{
@@ -364,6 +365,7 @@ input{font-family:inherit;}
 .install-tutorial-sheet .auth-title{margin-bottom:6px;}
 .install-steps{margin-top:14px;}
 .install-steps li{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;}
+.install-step-text{flex:1;min-width:0;}
 .install-step-ico{
   flex:0 0 22px;width:22px;height:22px;margin-top:1px;color:var(--ok);
 }

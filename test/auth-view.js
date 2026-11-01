@@ -40,5 +40,15 @@ check("user missing display name", !av.userHasDisplayName({ email: "a@b.co", use
 check("display name from metadata", av.accountLabelFromUser({ email: "a@b.co", user_metadata: { display_name: "Mia" } }) === "Mia");
 check("initial from display name", av.accountInitialFromLabel("Mia") === "M");
 
+check("recovery hash requires token params", !av.isPasswordRecoveryHash("#type=recovery"));
+check(
+  "recovery hash with access_token",
+  av.isPasswordRecoveryHash("#access_token=x&type=recovery")
+);
+check(
+  "canShow recovery blocks empty email",
+  !av.canShowPasswordRecoveryScreen({ recoveryActive: true, recoveryEmail: "  " })
+);
+
 console.log(`\n${pass}/${pass + fail} auth-view checks passed`);
 process.exit(fail ? 1 : 0);
