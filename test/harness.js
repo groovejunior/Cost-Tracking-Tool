@@ -13,6 +13,9 @@ const { webcrypto } = require("crypto");
 
 const APP_SRC = fs.readFileSync(process.env.SPEND_APP_JS || path.join(__dirname, "..", "app.js"), "utf8");
 const CURRENCY_SRC = fs.readFileSync(path.join(__dirname, "..", "currency.js"), "utf8");
+const INSTALL_TUTORIAL_SRC =
+  fs.readFileSync(path.join(__dirname, "..", "install-tutorial.js"), "utf8") +
+  ";if(typeof window!=='undefined')window.SpendInstallTutorial=SpendInstallTutorial;";
 const AUTH_VIEW_SRC =
   fs.readFileSync(path.join(__dirname, "..", "auth-view.js"), "utf8") +
   ";if(typeof window!=='undefined')window.SpendAuthView=SpendAuthView;";
@@ -355,6 +358,7 @@ async function bootApp({
 
   vm.createContext(ctx);
   vm.runInContext(AUTH_VIEW_SRC, ctx, { filename: "auth-view.js" });
+  vm.runInContext(INSTALL_TUTORIAL_SRC, ctx, { filename: "install-tutorial.js" });
   vm.runInContext(CURRENCY_SRC, ctx, { filename: "currency.js" });
   vm.runInContext(APP_SRC, ctx, { filename: "app.js" });
 

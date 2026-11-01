@@ -30,6 +30,10 @@ const ICONS = {
   chevron: P('<path d="M6 9l6 6 6-6"/>'),
   chevronLeft: P('<path d="M15 6l-6 6 6 6"/>'),
   chevronRight: P('<path d="M9 6l6 6-6 6"/>'),
+  share: P('<path d="M12 16V4"/><path d="M8 8l4-4 4 4"/><path d="M5 20h14"/>'),
+  download: P('<path d="M12 4v10"/><path d="M8 12l4 4 4-4"/><path d="M5 20h14"/>'),
+  viewMore: P('<rect x="3" y="5" width="18" height="13" rx="2.5"/><rect x="6" y="9" width="4" height="4" rx="1"/><rect x="11" y="9" width="4" height="4" rx="1"/><rect x="16" y="9" width="2" height="4" rx="1"/><rect x="13" y="15" width="7" height="4" rx="2"/>'),
+  homePlus: P('<path d="M4 11.5 12 5l8 6.5"/><path d="M6 11v8h12v-8"/><path d="M12 13v5M9.5 15.5h5"/>'),
   /* category pick icons */
   coffee: P('<path d="M5 9h11v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9Z"/><path d="M16 10h2a2.5 2.5 0 0 1 0 5h-2"/><path d="M7 4v2M10 3v3M13 4v2"/>'),
   car: P('<path d="M4 14h16l-1.2-4.2A2 2 0 0 0 16.9 8H7.1a2 2 0 0 0-1.9 1.8L4 14Z"/><path d="M5 14v3h2.5M19 14v3h-2.5"/><circle cx="8" cy="17" r="1.3"/><circle cx="16" cy="17" r="1.3"/><path d="M4 11h16"/>'),
@@ -2303,6 +2307,14 @@ function renderMore() {
   const el = document.getElementById("stubContent");
   if (window.SpendAuth && window.SpendAuth.isEnabled() && currentUser) {
     el.className = "account-panel";
+    const installCard = isInstallStandaloneMode()
+      ? ""
+      : `
+      <div class="account-card">
+        <div class="lbl">Install app</div>
+        <p class="settings-hint">Add Spend to your home screen for offline access and a full-screen app experience.</p>
+        <button type="button" class="auth-ghost-btn" id="moreInstallHelpBtn">How to install</button>
+      </div>`;
     const budgetDisplay = variableBudget.toFixed(2);
     el.innerHTML = `
       <div class="account-card">
@@ -2324,6 +2336,7 @@ function renderMore() {
         </div>
         <button type="button" class="savebtn settings-save" id="saveBudgetBtn">Save limit</button>
       </div>
+      ${installCard}
       <div class="account-card">
         <div class="lbl">Categories</div>
         <p class="settings-hint">Tap a category to edit. Fixed and Unique stay out of your variable budget.</p>
@@ -2333,6 +2346,7 @@ function renderMore() {
     document.getElementById("saveBudgetBtn")?.addEventListener("click", () => {
       void handleSaveBudget();
     });
+    document.getElementById("moreInstallHelpBtn")?.addEventListener("click", () => showInstallTutorial({ force: true }));
     el.querySelectorAll("[data-currency]").forEach((btn) => {
       btn.addEventListener("click", () => {
         void handleCurrencySelect(btn.getAttribute("data-currency"));
@@ -2386,6 +2400,155 @@ async function handleSaveBudget() {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+/* ---------- install tutorial ---------- */
+let deferredInstallPrompt = null;
+
+function installTutorialView() {
+  return window.SpendInstallTutorial;
+}
+
+function readInstallDismissed() {
+  try {
+    return localStorage.getItem(installTutorialView().STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function isInstallStandaloneMode() {
+  const it = installTutorialView();
+  if (!it) return false;
+  const dm = window.matchMedia("(display-mode: standalone)").matches ? "standalone" : "browser";
+  return it.isStandalone({ displayMode: dm, navigatorStandalone: !!window.navigator.standalone });
+}
+
+function syncAuthInstallLink() {
+  const wrap = document.getElementById("authInstallLinkWrap");
+  if (!wrap) return;
+  wrap.hidden = isInstallStandaloneMode();
+}
+
+function currentInstallPlatform() {
+  return installTutorialView().detectInstallPlatform({
+    userAgent: navigator.userAgent,
+    maxTouchPoints: navigator.maxTouchPoints,
+    platform: navigator.platform,
+  });
+}
+
+function updateInstallTutorialPanels() {
+  const platform = currentInstallPlatform();
+  const iosOther = document.getElementById("installPanelIosOther");
+  const stepsSafari = document.getElementById("installStepsIosSafari");
+  const stepsAndroid = document.getElementById("installStepsAndroid");
+  const desktop = document.getElementById("installPanelDesktop");
+  const promptBtn = document.getElementById("installPromptBtn");
+  const androidHasPrompt = platform === "android" && !!deferredInstallPrompt;
+
+  if (iosOther) iosOther.hidden = platform !== "ios-other";
+  if (stepsSafari) stepsSafari.hidden = platform !== "ios-safari" && platform !== "ios-other";
+  if (stepsAndroid) stepsAndroid.hidden = platform !== "android" || androidHasPrompt;
+  if (desktop) desktop.hidden = platform !== "desktop";
+  if (promptBtn) promptBtn.hidden = !androidHasPrompt;
+}
+
+function showInstallTutorial({ force = false } = {}) {
+  const it = installTutorialView();
+  if (!it) return;
+  if (
+    !it.shouldShowInstallTutorial({
+      dismissed: readInstallDismissed(),
+      standalone: isInstallStandaloneMode(),
+      forceShow: force,
+    })
+  ) {
+    return;
+  }
+  const el = document.getElementById("installTutorial");
+  if (!el) return;
+  updateInstallTutorialPanels();
+  paintIcons(el);
+  el.hidden = false;
+  document.getElementById("installTutorialDone")?.focus();
+}
+
+function dismissInstallTutorial({ persist = true } = {}) {
+  const el = document.getElementById("installTutorial");
+  if (el) el.hidden = true;
+  const note = document.getElementById("installCopyNote");
+  if (note) note.hidden = true;
+  if (persist) {
+    try {
+      localStorage.setItem(installTutorialView().STORAGE_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  }
+  syncAuthInstallLink();
+}
+
+function maybeShowInstallTutorial() {
+  showInstallTutorial({ force: false });
+}
+
+async function handleInstallPromptClick() {
+  if (!deferredInstallPrompt) return;
+  const btn = document.getElementById("installPromptBtn");
+  if (btn) btn.disabled = true;
+  try {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    updateInstallTutorialPanels();
+  } catch {
+    /* ignore */
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function copyInstallLink() {
+  const url = location.href.split("#")[0];
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    const note = document.getElementById("installCopyNote");
+    if (note) note.hidden = false;
+  } catch {
+    showToast("Could not copy link.");
+  }
+}
+
+function wireInstallTutorial() {
+  if (!installTutorialView()) return;
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const el = document.getElementById("installTutorial");
+    if (el && !el.hidden) updateInstallTutorialPanels();
+  });
+
+  document.getElementById("installTutorialDone")?.addEventListener("click", () => dismissInstallTutorial({ persist: true }));
+  document.getElementById("installTutorialBrowser")?.addEventListener("click", () => dismissInstallTutorial({ persist: true }));
+  document.getElementById("installCopyLinkBtn")?.addEventListener("click", () => void copyInstallLink());
+  document.getElementById("installPromptBtn")?.addEventListener("click", () => void handleInstallPromptClick());
+  document.getElementById("authInstallHelpLink")?.addEventListener("click", () => showInstallTutorial({ force: true }));
+
+  syncAuthInstallLink();
 }
 
 async function handleCurrencySelect(next) {
@@ -2454,6 +2617,8 @@ function showAuthScreen() {
   else setAuthMode("signin");
   clearAuthBanner();
   paintIcons(document.getElementById("screen-auth"));
+  syncAuthInstallLink();
+  maybeShowInstallTutorial();
 }
 
 function paintSignedInApp() {
@@ -3166,6 +3331,7 @@ function wireAuthForm() {
 async function bootstrap() {
   setAppLoading(true);
   wireAuthForm();
+  wireInstallTutorial();
   wireDisplayNameForm();
   wireAccountMenu();
   wireOnlineSync();

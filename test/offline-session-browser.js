@@ -443,10 +443,19 @@ const scenarios = {
       const keys = await caches.keys();
       const name = keys.find((k) => k.startsWith("spend-"));
       const entries = name ? (await (await caches.open(name)).keys()).map((r) => new URL(r.url).pathname) : [];
-      return { keys, name, hasAuthView: entries.some((p) => p.endsWith("/auth-view.js")), n: entries.length };
+      return {
+        keys,
+        name,
+        hasAuthView: entries.some((p) => p.endsWith("/auth-view.js")),
+        hasCurrency: entries.some((p) => p.endsWith("/currency.js")),
+        hasInstallTutorial: entries.some((p) => p.endsWith("/install-tutorial.js")),
+        n: entries.length,
+      };
     });
     check("cache name matches sw.js", info.name === EXPECTED_CACHE, info);
     check("auth-view.js is precached", info.hasAuthView, info);
+    check("currency.js is precached", info.hasCurrency, info);
+    check("install-tutorial.js is precached", info.hasInstallTutorial, info);
     await context.close();
   },
 
