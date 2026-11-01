@@ -207,6 +207,7 @@ function ensureUniqueCategory(list) {
 
 const DEFAULT_VARIABLE_BUDGET = 1000;
 let variableBudget = DEFAULT_VARIABLE_BUDGET;
+let displayCurrency = "AUD";
 /** @type {{ id: string|null, isNew: boolean, kind: 'variable'|'fixed'|'unique', name: string, color: string, icon: string, iconLocked: boolean } | null} */
 let catEditor = null;
 
@@ -287,21 +288,22 @@ function writeLocalSettings(userId, settings) {
 async function loadUserSettings(userId) {
   if (!userId) {
     variableBudget = DEFAULT_VARIABLE_BUDGET;
+    displayCurrency = SpendCurrency.DEFAULT;
     return;
   }
 
   const local = readLocalSettings(userId);
   if (local && local.variableBudget > 0) variableBudget = local.variableBudget;
+  if (local?.displayCurrency) displayCurrency = SpendCurrency.normalize(local.displayCurrency);
 
   if (!window.SpendSettings?.isEnabled()) return;
 
   try {
     let row = await window.SpendSettings.fetch(userId);
     if (!row) row = await window.SpendSettings.ensure(userId, DEFAULT_VARIABLE_BUDGET);
-    if (row?.variable_budget > 0) {
-      variableBudget = Number(row.variable_budget);
-      writeLocalSettings(userId, { variableBudget });
-    }
+    if (row?.variable_budget > 0) variableBudget = Number(row.variable_budget);
+    if (row?.currency) displayCurrency = SpendCurrency.normalize(row.currency);
+    writeLocalSettings(userId, { variableBudget, displayCurrency });
   } catch (e) {
     console.warn("[Spend] Could not load settings:", e.message);
   }
@@ -309,9 +311,18 @@ async function loadUserSettings(userId) {
 
 async function saveVariableBudget(amount) {
   variableBudget = Math.round(amount * 100) / 100;
-  if (currentUser) writeLocalSettings(currentUser.id, { variableBudget });
+  if (currentUser) writeLocalSettings(currentUser.id, { variableBudget, displayCurrency });
   if (useCloud() && window.SpendSettings) {
     await window.SpendSettings.updateBudget(currentUser.id, variableBudget);
+  }
+}
+
+async function saveDisplayCurrency(code, budget) {
+  displayCurrency = SpendCurrency.normalize(code);
+  variableBudget = Math.round(budget * 100) / 100;
+  if (currentUser) writeLocalSettings(currentUser.id, { variableBudget, displayCurrency });
+  if (useCloud() && window.SpendSettings) {
+    await window.SpendSettings.updateCurrencyAndBudget(currentUser.id, displayCurrency, variableBudget);
   }
 }
 
@@ -452,7 +463,7 @@ function save() {
 function load() {
   try {
     const p = readLocalExpenses();
-    if (p.length) expenses = p;
+    if (p.length) expenses = migrateExpenses(p);
   } catch (e) {}
 }
 
@@ -530,7 +541,19 @@ function expensePayload(item) {
     note: item.note || "",
     date: item.date,
     fxRate: item.fxRate ?? null,
+    currency: SpendCurrency.expenseCurrency(item),
   };
+}
+
+function migrateExpenseRow(e) {
+  if (!e || typeof e !== "object") return e;
+  if (!e.currency) e.currency = SpendCurrency.DEFAULT;
+  else e.currency = SpendCurrency.normalize(e.currency);
+  return e;
+}
+
+function migrateExpenses(list) {
+  return (list || []).map(migrateExpenseRow);
 }
 
 function syncUidFromExpenses() {
@@ -565,7 +588,7 @@ function mergeCloudAndLocal(cloudRows, local, syncedBefore) {
     if (syncedBefore && syncedBefore.has(item.id) && !isPendingExpense(item)) continue;
     byId.set(item.id, item);
   }
-  return [...byId.values()];
+  return [...byId.values()].map(migrateExpenseRow);
 }
 
 function syncedExpenseIds() {
@@ -749,6 +772,9 @@ function applyLocalUserState() {
   if (localSettings && localSettings.variableBudget > 0) {
     variableBudget = localSettings.variableBudget;
   }
+  if (localSettings?.displayCurrency) {
+    displayCurrency = SpendCurrency.normalize(localSettings.displayCurrency);
+  }
 }
 
 async function hydrateExpenses() {
@@ -880,7 +906,7 @@ function wireOnlineSync() {
 
 let confirmResolver = null;
 
-function askConfirm({ title, body, confirmLabel = "Delete" }) {
+function askConfirm({ title, body, confirmLabel = "Delete", danger = true }) {
   const dialog = document.getElementById("confirmDialog");
   const titleEl = document.getElementById("confirmTitle");
   const bodyEl = document.getElementById("confirmBody");
@@ -890,6 +916,8 @@ function askConfirm({ title, body, confirmLabel = "Delete" }) {
   titleEl.textContent = title;
   bodyEl.textContent = body;
   okBtn.textContent = confirmLabel;
+  okBtn.classList.toggle("confirm-btn--danger", danger);
+  okBtn.classList.toggle("confirm-btn--primary", !danger);
 
   dialog.hidden = false;
   okBtn.focus();
@@ -1009,29 +1037,43 @@ function setAppLoading(loading) {
 }
 
 /* ---------- helpers ---------- */
-const audFmt = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" });
-const eurFmt = new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR", minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const money = (n) => audFmt.format(n);
-/** EUR/AUD rate for one expense (monthly lock, then saved snapshot). */
+function viewMonthRate() {
+  return window.SpendRates.rateFor(viewMonth);
+}
+/** EUR→AUD rate for one expense (monthly lock, then saved snapshot). */
 function expenseRate(e) {
-  const monthly = window.SpendRates.rateFor(e.date);
-  return monthly || e.fxRate;
+  return window.SpendRates.rateForExpense(e);
 }
-/** EUR hint: round up to one decimal (e.g. €18.9). */
-function moneyEurAt(aud, rate) {
-  const eur = aud / rate;
-  return eurFmt.format(Math.ceil(eur * 10) / 10);
+function sumDisplayAmounts(items) {
+  return SpendCurrency.sumInDisplay(items, displayCurrency, (e) => expenseRate(e));
 }
-/** Hero total — AUD large + single ≈ € hint. */
-function moneyHero(aud, rate) {
-  return `<div class="moneyblock hero-money"><div class="money-main tabular">${money(aud)}</div><div class="money-eur tabular">≈ ${moneyEurAt(aud, rate)}</div></div>`;
+/** Format a number already expressed in the user's display currency. */
+function money(n) {
+  return SpendCurrency.format(n, displayCurrency);
 }
-/** AUD + € hint (category cards, expense rows). */
-function moneyStack(aud, rate) {
-  return `<div class="moneyblock"><div class="money-main tabular">${money(aud)}</div><div class="money-eur tabular">${moneyEurAt(aud, rate)}</div></div>`;
+function moneyHeroTotal(total) {
+  return SpendCurrency.moneyHeroHtml(total, displayCurrency);
+}
+function moneyStackTotal(total) {
+  return SpendCurrency.moneyStackTotalHtml(total, displayCurrency);
 }
 function moneyStackExpense(e) {
-  return moneyStack(e.amount, expenseRate(e));
+  return SpendCurrency.moneyStackExpenseHtml(e, displayCurrency, expenseRate(e));
+}
+function refreshCurrencyChrome() {
+  const inputCur =
+    currentScreen === "add" || document.getElementById("screen-add")?.classList.contains("active")
+      ? SpendCurrency.expenseCurrency({ currency: draft.currency })
+      : displayCurrency;
+  const curEl = document.getElementById("amtCurrency");
+  const amtInput = document.getElementById("amtInput");
+  const budgetCur = document.getElementById("budgetCurrency");
+  const budgetInput = document.getElementById("budgetInput");
+  const label = SpendCurrency.currencyLabel(inputCur);
+  if (curEl) curEl.textContent = label;
+  if (amtInput) amtInput.setAttribute("aria-label", SpendCurrency.amountAriaLabel(inputCur));
+  if (budgetCur) budgetCur.textContent = SpendCurrency.currencyLabel(displayCurrency);
+  if (budgetInput) budgetInput.setAttribute("aria-label", SpendCurrency.budgetAriaLabel(displayCurrency));
 }
 function expenseInViewMonth(e) {
   const d = new Date(e.date);
@@ -1167,20 +1209,16 @@ let enterAppRunning = false;
 let commitAddRunning = false;
 let viewMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let viewMonthFollowsToday = true;
-const draft = { amount: 0, cat: null, note: "", day: todayStr() };
+const draft = { amount: 0, cat: null, note: "", day: todayStr(), currency: "AUD" };
 
 /* ---------- HOME ---------- */
 function renderHome() {
   syncMonthSwitcher("home");
 
   const month = expenses.filter(expenseInViewMonth);
-  const total = month.reduce((s, e) => s + e.amount, 0);
-  const fixed = month
-    .filter((e) => isFixedCat(catById(e.cat)))
-    .reduce((s, e) => s + e.amount, 0);
-  const oneOff = month
-    .filter((e) => isOneOffCat(catById(e.cat)))
-    .reduce((s, e) => s + e.amount, 0);
+  const total = sumDisplayAmounts(month);
+  const fixed = sumDisplayAmounts(month.filter((e) => isFixedCat(catById(e.cat))));
+  const oneOff = sumDisplayAmounts(month.filter((e) => isOneOffCat(catById(e.cat))));
   const variable = total - fixed - oneOff;
   const left = variableBudget - variable;
   const pct = Math.min(100, Math.round((variable / variableBudget) * 100));
@@ -1190,7 +1228,7 @@ function renderHome() {
     .filter((c) => !isOneOffCat(c))
     .map((c) => ({
       c,
-      sum: month.filter((e) => e.cat === c.id).reduce((s, e) => s + e.amount, 0),
+      sum: sumDisplayAmounts(month.filter((e) => e.cat === c.id)),
     }))
     .filter((x) => x.sum > 0)
     .sort((a, b) => b.sum - a.sum);
@@ -1199,7 +1237,6 @@ function renderHome() {
     .map((c) => c.name)
     .join(", ");
   const recent = [...month].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4);
-  const fx = window.SpendRates.rateFor(viewMonth);
 
   const catCards = byCat
     .map(
@@ -1207,7 +1244,7 @@ function renderHome() {
     <div class="catcard">
       <div class="dot" style="background:${esc(c.color)}"><span class="icon" data-ico="${esc(c.icon)}"></span></div>
       <div class="cn">${esc(c.name)}</div>
-      <div class="cv">${moneyStack(sum, fx)}</div>
+      <div class="cv">${moneyStackTotal(sum)}</div>
     </div>`
     )
     .join("");
@@ -1232,7 +1269,7 @@ function renderHome() {
   document.getElementById("homeScroll").innerHTML = `
     <div class="hero">
       <div class="lbl">${isCurrentViewMonth() ? "Spent this month" : "Spent in " + viewMonth.toLocaleDateString("en-GB", { month: "long" })}</div>
-      <div class="total">${moneyHero(total, fx)}</div>
+      <div class="total">${moneyHeroTotal(total)}</div>
       <div class="bar ${over ? "over" : ""}"><i style="width:${pct}%"></i></div>
       <div class="budgetrows">
         <div class="budgetrow">
@@ -1376,6 +1413,7 @@ function openEditor() {
   renderPicker();
   syncDate();
   refreshSave();
+  refreshCurrencyChrome();
   showScreen("add");
 }
 function openAdd() {
@@ -1384,6 +1422,7 @@ function openAdd() {
   draft.cat = null;
   draft.note = "";
   draft.day = todayStr();
+  draft.currency = displayCurrency;
   const ai = document.getElementById("amtInput");
   ai.value = "";
   document.getElementById("noteInput").value = "";
@@ -1400,6 +1439,7 @@ function openEdit(id) {
   draft.cat = e.cat;
   draft.note = e.note || "";
   draft.day = isoDay(new Date(e.date));
+  draft.currency = SpendCurrency.expenseCurrency(e);
   document.getElementById("amtInput").value = e.amount.toFixed(2);
   document.getElementById("noteInput").value = e.note || "";
   document.getElementById("addTitle").textContent = "Edit expense";
@@ -1432,12 +1472,14 @@ async function commitAdd() {
   if (btn) btn.disabled = true;
 
   const date = stampFor(draft.day);
+  const rate = window.SpendRates.snapshotFor(date);
   const payload = {
     cat: draft.cat,
     amount: Math.round(draft.amount * 100) / 100,
     note: document.getElementById("noteInput").value.trim(),
     date,
-    fxRate: window.SpendRates.snapshotFor(date),
+    fxRate: rate,
+    currency: SpendCurrency.expenseCurrency({ currency: draft.currency || displayCurrency }),
   };
 
   try {
@@ -1476,7 +1518,7 @@ async function commitAdd() {
 function deleteConfirmCopy(e) {
   const c = catById(e.cat);
   const label = e.note || c.name;
-  const amount = money(e.amount);
+  const amount = SpendCurrency.format(e.amount, SpendCurrency.expenseCurrency(e));
   return {
     title: "Delete this expense?",
     body: `${label} · ${amount}. This can’t be undone.`,
@@ -1571,7 +1613,7 @@ function expensesInMonthDate(monthDate) {
 }
 
 function sumAmounts(items) {
-  return items.reduce((s, e) => s + e.amount, 0);
+  return sumDisplayAmounts(items);
 }
 
 function catBreakdownFor(items) {
@@ -1669,8 +1711,9 @@ function buildAnalyseHighlights(cur, prev) {
 }
 
 function moneyCompact(n) {
-  if (n >= 1000) return "$" + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
-  return "$" + Math.round(n);
+  const sym = displayCurrency === "EUR" ? "€" : "$";
+  if (n >= 1000) return sym + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
+  return sym + Math.round(n);
 }
 
 /** Multi-segment donut for category share of total spend. */
@@ -2272,15 +2315,24 @@ function renderMore() {
         <p class="settings-hint">Add Spend to your home screen for offline access and a full-screen app experience.</p>
         <button type="button" class="auth-ghost-btn" id="moreInstallHelpBtn">How to install</button>
       </div>`;
+    const budgetDisplay = variableBudget.toFixed(2);
     el.innerHTML = `
+      <div class="account-card">
+        <div class="lbl">Display currency</div>
+        <p class="settings-hint">New expenses and your spending limit use this currency. Expenses you already added keep the currency they were entered in.</p>
+        <div class="currency-seg" role="group" aria-label="Display currency">
+          <button type="button" class="currency-opt ${displayCurrency === "AUD" ? "active" : ""}" data-currency="AUD">AUD</button>
+          <button type="button" class="currency-opt ${displayCurrency === "EUR" ? "active" : ""}" data-currency="EUR">EUR</button>
+        </div>
+      </div>
       <div class="account-card">
         <div class="lbl">Variable spending limit</div>
         <p class="settings-hint">Monthly cap for flexible costs. Fixed categories below don't count toward this.</p>
         <div class="budget-field">
-          <span class="budget-cur">AUD</span>
+          <span class="budget-cur" id="budgetCurrency">${SpendCurrency.currencyLabel(displayCurrency)}</span>
           <input class="budget-input tabular" id="budgetInput" type="text" inputmode="decimal"
-                 autocomplete="off" aria-label="Variable spending limit in Australian dollars"
-                 value="${variableBudget.toFixed(2)}">
+                 autocomplete="off" aria-label="${esc(SpendCurrency.budgetAriaLabel(displayCurrency))}"
+                 value="${budgetDisplay}">
         </div>
         <button type="button" class="savebtn settings-save" id="saveBudgetBtn">Save limit</button>
       </div>
@@ -2295,6 +2347,11 @@ function renderMore() {
       void handleSaveBudget();
     });
     document.getElementById("moreInstallHelpBtn")?.addEventListener("click", () => showInstallTutorial({ force: true }));
+    el.querySelectorAll("[data-currency]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        void handleCurrencySelect(btn.getAttribute("data-currency"));
+      });
+    });
     document.getElementById("budgetInput")?.addEventListener("input", (e) => {
       e.target.value = e.target.value.replace(/[^0-9.,]/g, "");
     });
@@ -2492,6 +2549,40 @@ function wireInstallTutorial() {
   document.getElementById("authInstallHelpLink")?.addEventListener("click", () => showInstallTutorial({ force: true }));
 
   syncAuthInstallLink();
+}
+
+async function handleCurrencySelect(next) {
+  const code = SpendCurrency.normalize(next);
+  if (code === displayCurrency) return;
+  const rate = window.SpendRates.rateFor(new Date());
+  const converted = SpendCurrency.convertBudget(variableBudget, displayCurrency, code, rate);
+  const fromLabel = SpendCurrency.format(variableBudget, displayCurrency);
+  const toLabel = SpendCurrency.format(converted, code);
+  const toEur = code === "EUR";
+  const ok = await askConfirm({
+    title: toEur ? "Switch to euros?" : "Switch to Australian dollars?",
+    body: toEur
+      ? `Each expense keeps the currency it was entered in. Your ${fromLabel} spending limit will become about ${toLabel} using this month's rate. New expenses will be in euros.`
+      : `Each expense keeps the currency it was entered in. Your ${fromLabel} spending limit will become about ${toLabel} using this month's rate. New expenses will be in Australian dollars.`,
+    confirmLabel: toEur ? "Use euros" : "Use AUD",
+    danger: false,
+  });
+  if (!ok) {
+    renderMore();
+    return;
+  }
+  try {
+    await saveDisplayCurrency(code, converted);
+    refreshCurrencyChrome();
+    renderMore();
+    renderHome();
+    renderList();
+    renderAnalyse();
+    showToast(code === "EUR" ? "Display currency set to euros." : "Display currency set to AUD.");
+  } catch (err) {
+    showToast(err.message || "Could not save currency setting.");
+    renderMore();
+  }
 }
 
 /* ---------- auth ---------- */

@@ -24,6 +24,8 @@ function extractBetween(startMarker, endMarker) {
 const helpers = [
   "function readPendingDeletes() { return new Set(); }",
   "const deletedThisSession = new Set();",
+  "const SpendCurrency = { DEFAULT: 'AUD', normalize(c) { const x = String(c||'').toUpperCase(); return x === 'EUR' ? 'EUR' : 'AUD'; }, expenseCurrency(e) { return SpendCurrency.normalize(e && e.currency); } };",
+  "function migrateExpenseRow(e) { if (!e || typeof e !== 'object') return e; if (!e.currency) e.currency = 'AUD'; else e.currency = SpendCurrency.normalize(e.currency); return e; }",
   extractBetween("function isCloudId(", "function makeLocalId("),
   extractBetween("function isPendingExpense(", "function expensePayload("),
   extractBetween("function mergeCloudAndLocal(", "function pendingExpensesToSync("),
