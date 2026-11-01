@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Per-user settings (variable spending limit, etc.)
+ * Per-user settings (variable spending limit, display/budget currency, etc.)
  * Maps to public.user_settings in Supabase.
  */
 const SpendSettings = {
@@ -27,12 +27,39 @@ const SpendSettings = {
   async updateBudget(userId, amount) {
     const { data, error } = await this._db()
       .from("user_settings")
-      .update({ variable_budget: amount, currency: "AUD" })
+      .update({ variable_budget: amount })
       .eq("user_id", userId)
       .select("variable_budget")
       .single();
     if (error) throw error;
     return Number(data.variable_budget);
+  },
+
+  async updateCurrency(userId, currency) {
+    const code = window.SpendCurrency?.normalize(currency) || "AUD";
+    const { data, error } = await this._db()
+      .from("user_settings")
+      .update({ currency: code })
+      .eq("user_id", userId)
+      .select("currency")
+      .single();
+    if (error) throw error;
+    return data.currency;
+  },
+
+  async updateCurrencyAndBudget(userId, currency, budget) {
+    const code = window.SpendCurrency?.normalize(currency) || "AUD";
+    const { data, error } = await this._db()
+      .from("user_settings")
+      .update({ currency: code, variable_budget: budget })
+      .eq("user_id", userId)
+      .select("variable_budget, currency")
+      .single();
+    if (error) throw error;
+    return {
+      variable_budget: Number(data.variable_budget),
+      currency: data.currency,
+    };
   },
 
   /** Create a settings row if signup trigger did not run (older accounts). */
@@ -41,7 +68,7 @@ const SpendSettings = {
     if (existing) return existing;
     const { data, error } = await this._db()
       .from("user_settings")
-      .insert({ user_id: userId, variable_budget: defaultBudget, currency: "AUD" })
+      .insert({ user_id: userId, variable_budget: defaultBudget })
       .select("variable_budget, currency")
       .single();
     if (error) throw error;

@@ -14,7 +14,8 @@ create table if not exists public.expenses (
   amount numeric(10, 2) not null check (amount > 0),
   note text not null default '',
   expense_date timestamptz not null,    -- "date" in the app (renamed to avoid SQL keyword)
-  fx_rate numeric(10, 4),               -- EUR→AUD snapshot for the expense month (€ hints)
+  fx_rate numeric(10, 4),               -- EUR→AUD snapshot for the expense month (conversion)
+  currency text not null default 'AUD' check (currency in ('AUD', 'EUR')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -58,7 +59,7 @@ create index if not exists categories_user_sort_idx
 create table if not exists public.user_settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
   variable_budget numeric(10, 2) not null default 1000,
-  currency text not null default 'AUD',
+  currency text not null default 'AUD' check (currency in ('AUD', 'EUR')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -184,15 +185,4 @@ create policy "Authenticated read fx rates"
   to authenticated
   using (true);
 
-drop policy if exists "Authenticated insert fx rates" on public.fx_rates;
-create policy "Authenticated insert fx rates"
-  on public.fx_rates for insert
-  to authenticated
-  with check (true);
-
-drop policy if exists "Authenticated update fx rates" on public.fx_rates;
-create policy "Authenticated update fx rates"
-  on public.fx_rates for update
-  to authenticated
-  using (true)
-  with check (true);
+-- Inserts/updates: service role or SQL editor only (see migrations/20261006120000_bugfix_hardening.sql)

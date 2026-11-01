@@ -31,6 +31,11 @@ try {
 }
 
 const ROOT = path.resolve(process.env.SPEND_ROOT || path.join(__dirname, ".."));
+const EXPECTED_CACHE = (() => {
+  const m = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8").match(/const CACHE_NAME = "(spend-v\d+)"/);
+  if (!m) throw new Error("Could not read CACHE_NAME from sw.js");
+  return m[1];
+})();
 const CHROME = process.env.CHROME || "/usr/local/bin/google-chrome";
 const PORT = 8089;
 const HOST = "spend.test";
@@ -431,7 +436,7 @@ const scenarios = {
     await context.close();
   },
 
-  async "service worker cache is spend-v58 and includes auth-view.js"(browser) {
+  async "service worker precache matches sw.js and includes auth-view.js"(browser) {
     const be = makeBackend();
     const { context, page } = await installAndSignIn(browser, be);
     const info = await page.evaluate(async () => {
@@ -440,7 +445,7 @@ const scenarios = {
       const entries = name ? (await (await caches.open(name)).keys()).map((r) => new URL(r.url).pathname) : [];
       return { keys, name, hasAuthView: entries.some((p) => p.endsWith("/auth-view.js")), n: entries.length };
     });
-    check("cache name is spend-v58", info.name === "spend-v58", info);
+    check("cache name matches sw.js", info.name === EXPECTED_CACHE, info);
     check("auth-view.js is precached", info.hasAuthView, info);
     await context.close();
   },

@@ -1,4 +1,4 @@
-const CACHE_NAME = "spend-v58";
+const CACHE_NAME = "spend-v62";
 const NETWORK_FIRST_TIMEOUT_MS = 3000;
 const ASSETS = [
   "./",
@@ -7,6 +7,7 @@ const ASSETS = [
   "./app.js",
   "./auth-view.js",
   "./rates.js",
+  "./currency.js",
   "./vendor/supabase-js.js",
   "./supabase/config.js",
   "./supabase/client.js",

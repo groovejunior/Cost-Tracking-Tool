@@ -12,6 +12,7 @@ const vm = require("vm");
 const { webcrypto } = require("crypto");
 
 const APP_SRC = fs.readFileSync(process.env.SPEND_APP_JS || path.join(__dirname, "..", "app.js"), "utf8");
+const CURRENCY_SRC = fs.readFileSync(path.join(__dirname, "..", "currency.js"), "utf8");
 const AUTH_VIEW_SRC =
   fs.readFileSync(path.join(__dirname, "..", "auth-view.js"), "utf8") +
   ";if(typeof window!=='undefined')window.SpendAuthView=SpendAuthView;";
@@ -168,6 +169,7 @@ function toExpense(row) {
     note: row.note || "",
     date: row.date,
     fxRate: row.fxRate != null ? Number(row.fxRate) : null,
+    currency: row.currency === "EUR" ? "EUR" : "AUD",
   };
 }
 
@@ -341,6 +343,7 @@ async function bootApp({
   ctx.SpendRates = {
     snapshotFor: () => 1.6,
     rateFor: () => 1.6,
+    rateForExpense: (e) => (e && e.fxRate > 0 ? Number(e.fxRate) : 1.6),
     audToEur: (a, r) => a / r,
     monthKey: (d) => new Date(d).toISOString().slice(0, 7),
     currentMonthKey: () => new Date().toISOString().slice(0, 7),
@@ -352,6 +355,7 @@ async function bootApp({
 
   vm.createContext(ctx);
   vm.runInContext(AUTH_VIEW_SRC, ctx, { filename: "auth-view.js" });
+  vm.runInContext(CURRENCY_SRC, ctx, { filename: "currency.js" });
   vm.runInContext(APP_SRC, ctx, { filename: "app.js" });
 
   const app = {
@@ -404,11 +408,12 @@ async function bootApp({
       await settle(15);
     },
     /** Fill the add form and save, the way the UI does. */
-    async addExpense({ cat = "groceries", amount, note = "", day }) {
+    async addExpense({ cat = "groceries", amount, note = "", day, currency }) {
       vm.runInContext("editingId = null", ctx);
-      ctx.__draft = { cat, amount, note, day };
+      ctx.__draft = { cat, amount, note, day, currency };
       vm.runInContext(
         "draft.cat = __draft.cat; draft.day = __draft.day || todayStr();" +
+          "draft.currency = __draft.currency || displayCurrency;" +
           "document.getElementById('amtInput').value = String(__draft.amount);" +
           "document.getElementById('noteInput').value = __draft.note;",
         ctx
