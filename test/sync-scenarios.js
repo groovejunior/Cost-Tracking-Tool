@@ -578,6 +578,37 @@ async function scenario(name, fn) {
     assert.deepStrictEqual(app.tombstones(), []);
   });
 
+  await scenario("pending expenses survive sign-out and never leak to another account", async () => {
+    const server = new FakeServer();
+    const OTHER = { id: "99999999-2222-4333-8444-555555555555", email: "other@example.com" };
+    const storage = new Map();
+    let app = await bootApp({ server, storage, user: USER });
+    await idle(app);
+    app.setOnline(false);
+    await app.addExpense({ amount: 3, note: "secret-a" });
+    assert.ok(app.stored().some((e) => e.note === "secret-a" && e._pending));
+    await app.run("handleLogout()");
+    await settle();
+    assert.strictEqual(app.signedInAs, null, "still signed in after logout");
+    assert.strictEqual(app.expenses.length, 0, "in-memory expenses not cleared");
+    assert.ok(
+      JSON.parse(storage.get("spend_v1_" + USER.id) || "[]").some((e) => e.note === "secret-a"),
+      "pending row dropped from this user's cache"
+    );
+
+    app = await bootApp({ server, storage, user: OTHER });
+    await idle(app);
+    assert.ok(!app.expenses.some((e) => e.note === "secret-a"), "other account saw A's pending expense");
+    assert.strictEqual(server.count((r) => r.note === "secret-a"), 0, "A's pending uploaded as B");
+    assert.ok(!storage.get("spend_v1_" + OTHER.id) || !JSON.parse(storage.get("spend_v1_" + OTHER.id)).some((e) => e.note === "secret-a"));
+
+    app = await bootApp({ server, storage, user: USER });
+    await idle(app);
+    assert.ok(app.expenses.some((e) => e.note === "secret-a"), "same user did not get their pending row back");
+    assert.strictEqual(server.count((r) => r.note === "secret-a"), 1, "pending did not resume for the same user");
+    assert.ok(!app.expenses.some((e) => e.note === "secret-a" && e._pending), "still pending after re-login sync");
+  });
+
   await scenario("session rejected by the server (nothing saved) goes to sign-in", async () => {
     const server = new FakeServer();
     server.seed(USER.id, [row(A, 20)]);

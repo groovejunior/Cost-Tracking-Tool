@@ -66,12 +66,18 @@ const SpendAuth = {
     }
   },
 
-  /** Register a new account with email + password. */
-  async signUp(email, password) {
+  /** Register a new account with email + password and optional display name in user metadata. */
+  async signUp(email, password, displayName) {
+    const meta = {};
+    const name = (displayName || "").trim();
+    if (name) meta.display_name = name;
     const { data, error } = await window.spendSupabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: authRedirectTo() },
+      options: {
+        data: meta,
+        emailRedirectTo: authRedirectTo(),
+      },
     });
     if (error) throw error;
     return data;
@@ -98,6 +104,16 @@ const SpendAuth = {
     if (error) throw error;
   },
 
+  /** Save display name in user metadata (one-time prompt for older accounts). */
+  async updateDisplayName(displayName) {
+    const name = (displayName || "").trim();
+    const { data, error } = await window.spendSupabase.auth.updateUser({
+      data: { display_name: name },
+    });
+    if (error) throw error;
+    return data;
+  },
+
   /** Resend the sign-up confirmation email. */
   async resendSignup(email) {
     const { error } = await window.spendSupabase.auth.resend({
@@ -108,10 +124,37 @@ const SpendAuth = {
     if (error) throw error;
   },
 
-  /** End the session on this device only. */
+  /** Remove the saved session from this browser (no network required). */
+  clearLocalSession() {
+    if (!this.isEnabled()) return;
+    try {
+      const key = window.spendSupabase.auth.storageKey;
+      if (!key) return;
+      localStorage.removeItem(key);
+      localStorage.removeItem(key + "-user");
+      localStorage.removeItem(key + "-code-verifier");
+    } catch {
+      /* ignore */
+    }
+  },
+
+  /**
+   * Sign out on this device only. Other phones/laptops stay signed in
+   * (a personal tracker should not kick you out everywhere). Always
+   * clears the local session even when offline so the auth screen shows.
+   * Other tabs on this browser still hear SIGNED_OUT via supabase-js.
+   */
   async signOut() {
-    const { error } = await window.spendSupabase.auth.signOut({ scope: "local" });
-    if (error) throw error;
+    if (!this.isEnabled()) return;
+    try {
+      await withAuthTimeout(
+        window.spendSupabase.auth.signOut({ scope: "local" }),
+        "Sign out"
+      );
+    } catch (err) {
+      this.clearLocalSession();
+      if (this.getStoredSession()) throw err;
+    }
   },
 
   /**
