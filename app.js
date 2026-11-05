@@ -67,6 +67,8 @@ const ICONS = {
   star: P('<path d="M12 3.5 14.2 9l5.8.5-4.4 3.7 1.4 5.6L12 15.8 6.9 18.8l1.4-5.6L4 9.5 9.8 9 12 3.5Z"/>'),
   zap: P('<path d="M13 3 5 14h7l-1 7 8-11h-7l1-7Z"/>'),
   smile: P('<circle cx="12" cy="12" r="8"/><path d="M8.5 10h.01M15.5 10h.01M8.5 14.5S10 16.5 12 16.5s3.5-2 3.5-2"/>'),
+  users: P('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+  check: P('<path d="M5 12.5 9.5 17 19 7"/>'),
   scissors: P('<circle cx="7" cy="7" r="2.5"/><circle cx="7" cy="17" r="2.5"/><path d="M9 8.5 20 18M9 15.5 20 6"/>'),
   tree: P('<path d="M12 21v-6"/><path d="M12 15c-3.5 0-6-2-6-5 0 0 2.5.5 4-.5C9 6 11 4 12 4s3 2 2 5.5c1.5 1 4 .5 4 .5 0 3-2.5 5-6 5Z"/>'),
 };
@@ -1592,6 +1594,7 @@ function showScreen(name) {
     list: "screen-list",
     analyse: "screen-analyse",
     more: "screen-stub",
+    shared: "screen-shared",
   };
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
   document.getElementById(map[name]).classList.add("active");
@@ -1600,6 +1603,7 @@ function showScreen(name) {
   if (name === "list") renderList();
   if (name === "analyse") renderAnalyse();
   if (name === "more") renderMore();
+  if (name === "shared" && window.SpendSharedUI) window.SpendSharedUI.show();
 }
 
 function expensesInMonthDate(monthDate) {
@@ -2316,6 +2320,14 @@ function renderMore() {
       </div>`;
     const budgetDisplay = variableBudget.toFixed(2);
     el.innerHTML = `
+      <button type="button" class="shared-entry" data-nav="shared">
+        <span class="shared-entry-mark" data-ico="users"></span>
+        <span class="shared-entry-copy">
+          <span class="shared-entry-title">Shared groups</span>
+          <span class="shared-entry-sub">Split a trip, then see who transfers what</span>
+        </span>
+        <span class="icon shared-entry-chev" data-ico="chevronRight"></span>
+      </button>
       <div class="account-card">
         <div class="lbl">Display currency</div>
         <p class="settings-hint">New expenses and your spending limit use this currency. Expenses you already added keep the currency they were entered in.</p>
