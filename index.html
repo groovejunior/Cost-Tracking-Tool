@@ -289,12 +289,22 @@
     <div id="stubContent"></div>
   </section>
 
+  <!-- SHARED GROUPS -->
+  <section class="screen" id="screen-shared">
+    <div class="topbar" id="sharedTopbar">
+      <button type="button" class="iconbtn" id="sharedBack" hidden aria-label="Back" data-ico="chevronLeft"></button>
+      <h1 id="sharedTitle">Groups</h1>
+    </div>
+    <div class="scroll" id="sharedScroll"></div>
+  </section>
+
   <!-- NAV -->
   <nav class="nav" id="nav">
     <button data-nav="home" class="on"><span class="icon" data-ico="home"></span>Home</button>
     <button data-nav="list"><span class="icon" data-ico="list"></span>Expenses</button>
     <button data-nav="add"><span class="icon" data-ico="plus"></span>Add</button>
     <button data-nav="analyse"><span class="icon" data-ico="chart"></span>Analysis</button>
+    <button data-nav="shared"><span class="icon" data-ico="users"></span>Groups</button>
     <button data-nav="more"><span class="icon" data-ico="dots"></span>More</button>
   </nav>
 </div>
@@ -367,6 +377,9 @@
 <script src="./supabase/fx-rates.js"></script>
 <script src="./rates.js"></script>
 <script src="./currency.js"></script>
+<script src="./shared-ledger.js"></script>
+<script src="./supabase/shared.js"></script>
+<script src="./shared-ui.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
