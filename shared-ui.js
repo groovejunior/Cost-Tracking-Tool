@@ -177,8 +177,10 @@ const SpendSharedUI = {
     this._syncChrome();
     const el = document.getElementById("sharedScroll");
     if (!el) return;
+    const top = el.scrollTop;
     el.innerHTML = this._html();
     if (typeof paintIcons === "function") paintIcons(el);
+    if (top) el.scrollTop = top;
   },
 
   _html() {
@@ -308,7 +310,7 @@ const SpendSharedUI = {
   _expenseRow(group, expense) {
     const payer = this._memberName(group, expense.paidBy);
     const when = this._formatDay(expense.date);
-    const mode = expense.kind === "transfer" ? "Transfer" : expense.splitMode === "shares" ? "By shares" : "Everyone";
+    const mode = expense.kind === "transfer" ? "Transfer" : expense.splitMode === "shares" ? "By shares" : this._equalLabel(group, expense);
     const original = window.SpendCurrency.format(expense.amount, expense.currency);
     let extra = "";
     if (expense.currency !== group.currency) {
@@ -457,6 +459,7 @@ const SpendSharedUI = {
         return `<button type="button" class="sh-choice ${on ? "on" : ""}" data-shared-payer="${this._esc(m.id)}" aria-pressed="${on}">${this._esc(m.displayName)}</button>`;
       })
       .join("");
+    const parts = this._partMap(group, draft);
     const shareRows =
       draft.splitMode === "shares"
         ? `<div class="sh-shares">${group.members
@@ -473,7 +476,20 @@ const SpendSharedUI = {
                 </div>`;
             })
             .join("")}</div>`
-        : `<p class="sh-note">Split equally across all ${group.members.length} accounts.</p>`;
+        : `
+          <p class="sh-note">Tick who this cost is split between.${draft.currency !== group.currency ? ` Amounts are in ${this._esc(group.currency)}.` : ""}</p>
+          <div class="sh-split-list" role="group" aria-label="Who shares this cost">${group.members
+            .map((m) => {
+              const on = draft.included[m.id] !== false;
+              const amt = on ? this._money(parts.get(m.id) || 0, group.currency) : "";
+              return `
+                <button type="button" class="sh-split-row ${on ? "on" : ""}" data-shared-include="${this._esc(m.id)}" aria-pressed="${on}">
+                  <span class="sh-tick" aria-hidden="true">${on ? `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17.5 19 7"/></svg>` : ""}</span>
+                  <span class="sh-split-name">${this._esc(m.displayName)}</span>
+                  <span class="sh-split-amt tabular" data-shared-share-amt="${this._esc(m.id)}">${this._esc(amt)}</span>
+                </button>`;
+            })
+            .join("")}</div>`;
     const remove = draft.id
       ? `<button type="button" class="catdelbtn" data-shared-delete-expense="${this._esc(draft.id)}">Delete cost</button>`
       : "";
@@ -505,7 +521,7 @@ const SpendSharedUI = {
         <div class="field">
           <div class="fl">Split</div>
           <div class="sh-tabs" role="group" aria-label="How to split">
-            <button type="button" class="sh-tab ${draft.splitMode === "equal" ? "on" : ""}" data-shared-split="equal">Everyone</button>
+            <button type="button" class="sh-tab ${draft.splitMode === "equal" ? "on" : ""}" data-shared-split="equal">Equally</button>
             <button type="button" class="sh-tab ${draft.splitMode === "shares" ? "on" : ""}" data-shared-split="shares">By shares</button>
           </div>
           ${shareRows}
@@ -533,21 +549,31 @@ const SpendSharedUI = {
     return draft;
   },
 
+  _equalLabel(group, expense) {
+    const n = (expense.shares || []).filter((s) => Number(s.shares) > 0).length;
+    if (n > 0 && n < group.members.length) return `Equally · ${n} ${n === 1 ? "person" : "people"}`;
+    return "Equally";
+  },
+
   _shareList(group, draft) {
-    if (draft.splitMode === "equal") return group.members.map((m) => ({ memberId: m.id, shares: 1 }));
+    if (draft.splitMode === "equal") {
+      return group.members
+        .filter((m) => draft.included?.[m.id] !== false)
+        .map((m) => ({ memberId: m.id, shares: 1 }));
+    }
     return group.members
       .map((m) => ({ memberId: m.id, shares: Number(draft.shares[m.id] || 0) }))
       .filter((s) => s.shares > 0);
   },
 
-  _previewHtml(group, draft) {
+  _partMap(group, draft) {
+    const map = new Map();
     const amount = typeof parseAmount === "function" ? parseAmount(draft.amount) : Number(draft.amount);
-    if (!(amount > 0)) return `<p class="sh-note">Enter an amount to see each person's share.</p>`;
+    if (!(amount > 0)) return map;
     const shares = this._shareList(group, draft);
-    if (!shares.length) return `<p class="sh-note">Give at least one person a share.</p>`;
-    let parts;
+    if (!shares.length) return map;
     try {
-      parts = window.SpendLedger.expenseParts(
+      const parts = window.SpendLedger.expenseParts(
         {
           amount,
           currency: draft.currency,
@@ -557,19 +583,38 @@ const SpendSharedUI = {
         },
         group.currency
       );
-    } catch (err) {
-      return `<p class="sh-note">${this._esc(err.message || "Check the shares.")}</p>`;
+      parts.parts.forEach((part) => map.set(part.memberId, part.cents));
+    } catch {
+      return map;
     }
-    const lines = parts.parts
+    return map;
+  },
+
+  _previewHtml(group, draft) {
+    const amount = typeof parseAmount === "function" ? parseAmount(draft.amount) : Number(draft.amount);
+    if (!(amount > 0)) return `<p class="sh-note">Enter an amount to see each person's share.</p>`;
+    const shares = this._shareList(group, draft);
+    if (!shares.length) return `<p class="sh-note">${draft.splitMode === "equal" ? "Tick at least one person." : "Give at least one person a share."}</p>`;
+    const partMap = this._partMap(group, draft);
+    if (!partMap.size) return `<p class="sh-note">Check the shares.</p>`;
+    const payer = this._memberName(group, draft.paidBy);
+    const charged = `${this._esc(payer)}'s account is charged ${this._esc(window.SpendCurrency.format(amount, draft.currency))}.`;
+    if (draft.splitMode === "equal") {
+      return `
+        <div class="lbl">Charged</div>
+        <p class="sh-note">${charged}</p>`;
+    }
+    const lines = shares
+      .filter((share) => partMap.has(share.memberId))
+      .map((share) => ({ memberId: share.memberId, cents: partMap.get(share.memberId) }))
       .map((part) => {
         const name = this._memberName(group, part.memberId);
         return `<div class="sh-preview-line"><span>${this._esc(name)}</span><span class="tabular">${this._esc(this._money(part.cents, group.currency))}</span></div>`;
       })
       .join("");
-    const payer = this._memberName(group, draft.paidBy);
     return `
       <div class="lbl">Preview</div>
-      <p class="sh-note">${this._esc(payer)}'s account is charged ${this._esc(window.SpendCurrency.format(amount, draft.currency))}.</p>
+      <p class="sh-note">${charged}</p>
       ${lines}`;
   },
 
@@ -579,6 +624,15 @@ const SpendSharedUI = {
     const el = document.getElementById("sharedPreview");
     if (!group || !draft || !el) return;
     el.innerHTML = this._previewHtml(group, draft);
+    const parts = this._partMap(group, draft);
+    document.querySelectorAll("[data-shared-share-amt]").forEach((node) => {
+      const id = node.getAttribute("data-shared-share-amt");
+      if (draft.included?.[id] === false) {
+        node.textContent = "";
+        return;
+      }
+      node.textContent = this._money(parts.get(id) || 0, group.currency);
+    });
   },
 
   _formatDay(iso) {
@@ -597,7 +651,7 @@ const SpendSharedUI = {
   },
 
   async _onClick(e) {
-    const el = e.target.closest("[data-shared-open], [data-shared-create], [data-shared-save-group], [data-shared-tab], [data-shared-people], [data-shared-add-cost], [data-shared-edit], [data-shared-payer], [data-shared-split], [data-shared-share], [data-shared-cost-currency], [data-shared-create-currency], [data-shared-save-expense], [data-shared-delete-expense], [data-shared-save-person], [data-shared-invite], [data-shared-remove], [data-shared-accept], [data-shared-decline], [data-shared-cancel-invite], [data-shared-record], [data-shared-group-currency], [data-shared-delete-group]");
+    const el = e.target.closest("[data-shared-open], [data-shared-create], [data-shared-save-group], [data-shared-tab], [data-shared-people], [data-shared-add-cost], [data-shared-edit], [data-shared-payer], [data-shared-split], [data-shared-include], [data-shared-share], [data-shared-cost-currency], [data-shared-create-currency], [data-shared-save-expense], [data-shared-delete-expense], [data-shared-save-person], [data-shared-invite], [data-shared-remove], [data-shared-accept], [data-shared-decline], [data-shared-cancel-invite], [data-shared-record], [data-shared-group-currency], [data-shared-delete-group]");
     if (!el || this.state.busy) return;
     if (el.hasAttribute("data-shared-open")) {
       this.state.groupId = el.getAttribute("data-shared-open");
@@ -650,7 +704,40 @@ const SpendSharedUI = {
     }
     if (el.hasAttribute("data-shared-split")) {
       this._draftFromForm();
-      this.state.draft.splitMode = el.getAttribute("data-shared-split");
+      const next = el.getAttribute("data-shared-split");
+      const draft = this.state.draft;
+      const members = this._group()?.members || [];
+      if (next === "shares" && draft.splitMode !== "shares") {
+        members.forEach((m) => {
+          const current = Number(draft.shares[m.id]) || 0;
+          draft.shares[m.id] = draft.included?.[m.id] === false ? 0 : current > 0 ? current : 1;
+        });
+      }
+      if (next === "equal" && draft.splitMode !== "equal") {
+        members.forEach((m) => {
+          draft.included[m.id] = Number(draft.shares[m.id]) > 0;
+        });
+        if (!members.some((m) => draft.included[m.id])) {
+          members.forEach((m) => {
+            draft.included[m.id] = true;
+          });
+        }
+      }
+      draft.splitMode = next;
+      this._render();
+      return;
+    }
+    if (el.hasAttribute("data-shared-include")) {
+      this._draftFromForm();
+      const id = el.getAttribute("data-shared-include");
+      const draft = this.state.draft;
+      const members = this._group()?.members || [];
+      const turningOff = draft.included?.[id] !== false;
+      if (turningOff && members.filter((m) => m.id !== id && draft.included?.[m.id] !== false).length === 0) {
+        this._toast("Tick at least one person.");
+        return;
+      }
+      draft.included[id] = !turningOff;
       this._render();
       return;
     }
@@ -715,14 +802,20 @@ const SpendSharedUI = {
       return;
     }
     const shares = {};
+    const included = {};
+    const saved = new Map((existing?.shares || []).map((s) => [s.memberId, Number(s.shares) || 0]));
     group.members.forEach((m) => {
-      shares[m.id] = existing?.splitMode === "shares" ? 0 : 1;
+      if (!existing) {
+        shares[m.id] = 1;
+        included[m.id] = true;
+      } else if (existing.splitMode === "shares") {
+        shares[m.id] = saved.get(m.id) || 0;
+        included[m.id] = (saved.get(m.id) || 0) > 0;
+      } else {
+        shares[m.id] = 1;
+        included[m.id] = saved.has(m.id) && saved.get(m.id) > 0;
+      }
     });
-    if (existing?.splitMode === "shares") {
-      existing.shares.forEach((s) => {
-        shares[s.memberId] = s.shares;
-      });
-    }
     const me = group.members.find((m) => m.userId && m.userId === this._meId());
     this.state.draft = {
       id: existing?.id || null,
@@ -732,6 +825,7 @@ const SpendSharedUI = {
       paidBy: existing?.paidBy || me?.id || group.members[0]?.id,
       splitMode: existing?.splitMode || "equal",
       shares,
+      included,
       day: existing ? this._dayValue(existing.date) : typeof todayStr === "function" ? todayStr() : "",
     };
     this.state.view = "expense";

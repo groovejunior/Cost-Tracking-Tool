@@ -82,7 +82,7 @@ Groups is a shared trip ledger, like splitting a holiday with friends.
 - Create a group and add each person. They each get an individual account.
 - Invite someone by email. When they sign in with that email, the group appears under Groups and they can join.
 - Add a shared cost with a name, an AUD or EUR amount, and the account that paid.
-- Split it across everyone, or by shares (use 0 to leave someone out).
+- Split it equally and tick who is included, or split by shares (use 0 to leave someone out).
 - Balances shows what each account is owed or owes, in the group's currency.
 - Settle lists the fewest transfers that square the group. Each line is one payment from one person to another. Record a transfer once it has been paid.
 
